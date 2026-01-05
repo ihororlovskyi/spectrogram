@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spectrogram on WebGL</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css">
+  <!-- <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script> -->
+  <!-- <style type="text/tailwindcss">
+    @theme {
+      --color-clifford: #da373d;
+    }
+  </style> -->
+  <link rel="shortcut icon" href="/favicon.ico">
+</head>
+<body>
+
+  <!-- <header class="fixed top-0 left-0 w-full z-50 bg-white/50 h-20 flex items-center justify-center">
+    <h1 class="font-quicksand text-xl font-bold uppercase tracking-widest text-gray-900">
+      Spectrogram
+    </h1>
+  </header> -->
+
+  <!-- <header class="fixed top-0 left-0 w-full z-50 h-20 flex items-center justify-center">
+    <h1 class="font-quicksand text-xl font-bold uppercase tracking-widest text-white">
+      Spectrogram
+    </h1>
+  </header> -->
+
+  <canvas id="spectrogram"></canvas>
+  <canvas id="waveformCanvas" class="fixed bottom-0 left-0 w-full h-[10%] z-20"></canvas>
+
+  <!-- Toggle Button (Burger Menu) -->
+  <button id="toggleControlBtn" class="fixed top-2 right-2 z-50 w-10 h-10 flex items-center justify-center bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 hover:border-white/40 transition-all duration-200">
+    <svg id="burgerIcon" class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+    </svg>
+    <svg id="closeIcon" class="w-6 h-6 text-white hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+    </svg>
+  </button>
+
+  <!-- Control Panel -->
+  <div id="controlPanel" class="fixed top-0 left-0 w-full z-40 bg-[#111]/50 max-h-screen pl-4 pr-4 overflow-x-auto overflow-y-auto whitespace-nowrap flex flex-col justify-start items-start gap-4 pt-4 pb-4 transition-all duration-300 translate-y-0">
+    
+    <dev class="flex flex-row justify-center gap-4 items-end ">
+    
+      <h1 class="font-quicksand text-xl font-bold uppercase tracking-widest text-white">
+        Spectrogram
+      </h1>
+
+      <dev id="statusMessage" class="text-base text-white font-bold">
+        Select an audio file to start
+      </dev>
+
+    </dev>
+    <dev class="flex flex-row justify-center gap-4 items-center">
+
+      
+      <label class="file-button inline-block cursor-pointer group">
+        <input type="file" id="audioFile" accept="audio/*" class="hidden">
+        <span class="inline-block px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+          Select Audio File
+        </span>
+      </label>
+      
+      <button id="playPauseBtn" disabled class="cursor-pointer px-5 py-3 bg-green-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-green-500/80 hover:border-white/60 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-green-500/80">
+        Play
+      </button>
+      
+      <span class="text-white/40">|</span>
+      <span class="text-white/40">Irukanji</span>
+
+      <button id="playIrukanji001Btn" class="cursor-pointer px-5 py-3 bg-purple-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-purple-500/80 hover:border-white/60 active:scale-[0.98]">
+        001
+      </button>
+
+      <button id="playIrukanjiBtn" class="cursor-pointer px-5 py-3 bg-purple-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-purple-500/80 hover:border-white/60 active:scale-[0.98]">
+        047
+      </button>
+
+      <span class="text-white/40">Gaz Mask</span>
+      <button id="playGazMaskBtn" class="cursor-pointer px-5 py-3 bg-purple-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-purple-500/80 hover:border-white/60 active:scale-[0.98]">
+        01
+      </button>
+
+      <button id="playGazMask04Btn" class="cursor-pointer px-5 py-3 bg-purple-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-purple-500/80 hover:border-white/60 active:scale-[0.98]">
+        04
+      </button>
+
+      <span class="text-white/40">|</span>
+
+      <button id="themeRainbowBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Rainbow
+      </button>
+
+      <button id="themeBlackWhiteBtn" class="cursor-pointer px-5 py-3 bg-orange-500/80 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/60 active:scale-[0.98]">
+        Gray
+      </button>
+
+      <button id="themeInfernoBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Inferno
+      </button>
+
+      <button id="themeForestBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Forest
+      </button>
+
+      <!-- <button id="themeWhiteBlackBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        White → Black
+      </button> -->
+
+      <button id="themeMountainsBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Mountains
+      </button>
+
+      <span class="text-white/40">|</span>
+
+      <button id="scaleLogBtn" class="cursor-pointer px-5 py-3 bg-orange-500/80 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/60 active:scale-[0.98]">
+        Log
+      </button>
+
+      <button id="scaleMelBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Mel
+      </button>
+
+      <button id="scaleLinearBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Linear
+      </button>
+
+      <span class="text-white/40">|</span>
+      <span class="text-white/40">Bins</span>
+      <button id="increaseFreqBinsBtn" class="cursor-pointer px-5 py-3 bg-cyan-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-cyan-500/80 hover:border-white/60 active:scale-[0.98]">
+        Bins x2
+      </button>
+
+      <button id="decreaseFreqBinsBtn" class="cursor-pointer px-5 py-3 bg-cyan-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-cyan-500/80 hover:border-white/60 active:scale-[0.98]">
+        Bins ÷2
+      </button>
+
+      <span class="text-white/40">|</span>
+
+      <button id="camera180270Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -180, 270, 90
+      </button>
+
+      <button id="camera135270Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -135, 270, 90
+      </button>
+
+      <button id="resetCameraBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45, -45, 0
+      </button>
+
+      <button id="camera000Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        0, 0, 0
+      </button>
+
+      <button id="camera45900Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45, 90, 0
+      </button>
+
+      <button id="camera451800Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45, 180, 0
+      </button>
+
+      <span class="text-white/40">X</span>
+      <button id="rotateXMinus90Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45°
+      </button>
+
+      <button id="rotateXPlus90Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        +45°
+      </button>
+
+      <span class="text-white/40">Y</span>
+      <button id="rotateYMinus45Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45°
+      </button>
+
+      <button id="rotateYPlus45Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        +45°
+      </button>
+
+      <span class="text-white/40">Z</span>
+      <button id="rotateZMinus90Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        -45°
+      </button>
+
+      <button id="rotateZPlus90Btn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        +45°
+      </button>
+
+      <span class="text-white/40">|</span>
+      <button id="flipXBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Flip X
+      </button>
+
+      <button id="flipYBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Flip Y
+      </button>
+
+      <button id="flipZBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Flip Z
+      </button>
+
+      <span class="text-white/40">|</span>
+
+      <button id="toggleAxesBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Show Axes
+      </button>
+
+      <button id="toggleWaveformBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Show Waveform
+      </button>
+
+      <button id="toggleGridBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Show X Grid
+      </button>
+
+      <button id="toggleYGridBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Show Y Grid
+      </button>
+
+      <button id="toggleZGridBtn" class="cursor-pointer px-5 py-3 bg-white/10 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 active:scale-[0.98]">
+        Show Z Grid
+      </button>
+
+      <span class="text-white/40">|</span>
+
+      <button id="zoomX1Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X1
+      </button>
+
+      <button id="zoomX2Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X2
+      </button>
+
+      <button id="zoomX3Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X3
+      </button>
+
+      <button id="zoomX4Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X4
+      </button>
+
+      <button id="zoomX5Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X5
+      </button>
+
+      <button id="zoomX6Btn" class="cursor-pointer px-5 py-3 bg-blue-500/60 text-base text-white rounded-lg font-bold transition-all duration-200 backdrop-blur-sm border border-white/40 hover:bg-blue-500/80 hover:border-white/60 active:scale-[0.98]">
+        X6
+      </button>
+
+
+    </dev>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

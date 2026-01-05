@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --font-quicksand: "Quicksand", sans-serif;
+}
+
+@layer base {
+  html, body {
+    @apply w-full h-full overflow-hidden bg-[#141414] font-quicksand;
+  }
+}
+
+@layer components {
+  #spectrogram {
+    @apply block fixed left-0 w-full;
+    /* top: 80px; */
+    top: 0px;
+    /* height: calc(100% - 196px); */
+    height: 100%;
+  }
+}
