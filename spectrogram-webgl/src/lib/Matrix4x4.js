@@ -175,6 +175,30 @@ export class Matrix4x4 {
     return this.frustum(-frustumW, frustumW, -frustumH, frustumH, nearZ, farZ);
   }
 
+  ortho(left, right, bottom, top, nearZ, farZ) {
+    const deltaX = right - left;
+    const deltaY = top - bottom;
+    const deltaZ = farZ - nearZ;
+
+    if ((deltaX === 0.0) || (deltaY === 0.0) || (deltaZ === 0.0))
+      return this;
+
+    const ortho = new Matrix4x4();
+
+    ortho.elements[0 * 4 + 0] = 2.0 / deltaX;
+    ortho.elements[1 * 4 + 1] = 2.0 / deltaY;
+    ortho.elements[2 * 4 + 2] = -2.0 / deltaZ;
+    ortho.elements[3 * 4 + 0] = -(right + left) / deltaX;
+    ortho.elements[3 * 4 + 1] = -(top + bottom) / deltaY;
+    ortho.elements[3 * 4 + 2] = -(nearZ + farZ) / deltaZ;
+    ortho.elements[3 * 4 + 3] = 1.0;
+
+    const result = ortho.multiply(this);
+    this.elements = result.elements;
+
+    return this;
+  }
+
   multiply(right) {
     const tmp = new Matrix4x4();
 

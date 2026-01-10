@@ -68,7 +68,7 @@ export class AnalyserView {
     this.imageVBOTexCoordOffset = 0;
 
     // Background color
-    this.backgroundColor = [0.08, 0.08, 0.08, 1];
+    this.backgroundColor = [0.09, 0.09, 0.09, 1];
     this.foregroundColor = [0, 0.7, 0, 1];
 
     // Color mode: 0 = Rainbow, 1 = Gray, 2 = Inferno, 3 = Forest, 4 = White→Black, 5 = Mountains

@@ -10,11 +10,10 @@ export class Player {
     const analyser = this.context.createAnalyser();
     // const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     // analyser.fftSize = isMobile ? 1024 : 2048;
-    analyser.fftSize = 4096;
+    analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0;
 
-    // Log frequency bins info
-    console.log(`Frequency bins: ${analyser.frequencyBinCount}`);
+    // Log FFT configuration
     console.log(`FFT Size: ${analyser.fftSize}`);
 
     const mix = this.context.createGain();
@@ -124,8 +123,9 @@ export class Player {
   }
 
   setFFTSize(size) {
+    const oldSize = this.analyser.fftSize;
     this.analyser.fftSize = size;
-    console.log(`FFT Size changed to: ${size}, Frequency bins: ${this.analyser.frequencyBinCount}`);
+    console.log(`FFT Size changed: from ${oldSize} to ${size}`);
   }
 
   getFFTSize() {

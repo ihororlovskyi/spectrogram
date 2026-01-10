@@ -6,6 +6,8 @@ Audio Spectrogram Web Service
 
 import os
 import asyncio
+import math
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -18,9 +20,10 @@ import librosa.display
 import matplotlib
 matplotlib.use('Agg')  # Для серверного рендерингу
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 from matplotlib.colors import LinearSegmentedColormap
 import soundfile as sf
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import shutil
@@ -57,7 +60,7 @@ app.add_middleware(
 BASE_DIR = Path(__file__).parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "outputs"
-STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR = BASE_DIR / "dist"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -70,6 +73,27 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
 # Підтримувані формати
 SUPPORTED_FORMATS = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.wma'}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+IMAGE_EXT = ".jpg"
+IMAGE_FORMAT = "jpeg"
+JPEG_QUALITY = 100
+JPEG_SUBSAMPLING = 0
+
+FINAL_FIGSIZE = (22.8, 12.8)
+FINAL_DPI = 168
+PREVIEW_WIDTH_PX = 320
+PREVIEW_DPI = 160
+PREVIEW_FIGSIZE = (
+    PREVIEW_WIDTH_PX / PREVIEW_DPI,
+    (PREVIEW_WIDTH_PX / PREVIEW_DPI) * (FINAL_FIGSIZE[1] / FINAL_FIGSIZE[0]),
+)
+PREVIEW_FONT_SCALE = 0.5
+FREQ_MIN_HZ = 0.0
+FREQ_MAX_HZ = 24000.0
+LOG_MIN_HZ = 20.0
+LOG_LINTHRESH_HZ = 20.0
+LOG_BASE = 10
+MAX_FREQ_ROUND_HZ = 500.0
 
 # Зберігання статусів завдань
 tasks_status = {}
@@ -100,6 +124,33 @@ def generate_preview_hash(colormap: str, scale: str, fft_size: int, mode: str) -
     return hashlib.md5(params.encode()).hexdigest()[:8]
 
 
+MODE_CONFIGS = {
+    "classic": {
+        "top_db": None,
+        "hop_div": 4,
+        "preemphasis": None,
+        "vmax_percentile": None,
+    },
+    "sharp": {
+        "top_db": 80,
+        "hop_div": 8,
+        "preemphasis": 0.97,
+        "vmax_percentile": 99.7,
+    },
+    "sharper": {
+        "top_db": 50,
+        "hop_div": 16,
+        "preemphasis": 0.98,
+        "vmax_percentile": 99.5,
+    },
+}
+
+
+def get_mode_config(mode: str) -> dict:
+    """Повертає параметри для режиму підсилення."""
+    return MODE_CONFIGS.get(mode, MODE_CONFIGS["classic"])
+
+
 def compute_spectrogram_gpu(audio: np.ndarray, sr: int, n_fft: int = 2048,
                             hop_length: int = 512, use_gpu: bool = True) -> np.ndarray:
     """
@@ -128,6 +179,7 @@ def compute_spectrogram_gpu(audio: np.ndarray, sr: int, n_fft: int = 2048,
         # Перетворення у децибели
         magnitude = cp.abs(stft_matrix)
         spectrogram_db = 20 * cp.log10(cp.maximum(magnitude, 1e-10))
+        spectrogram_db = spectrogram_db - spectrogram_db.max()
 
         # Повертаємо на CPU
         return cp.asnumpy(spectrogram_db)
@@ -138,17 +190,15 @@ def compute_spectrogram_gpu(audio: np.ndarray, sr: int, n_fft: int = 2048,
         return spectrogram_db
 
 
-def enhance_image(image_path: str, mode: str = "classic"):
+def apply_image_enhancements(img: Image.Image, mode: str = "classic") -> Image.Image:
     """
-    Посилення зображення для покращення графіки
-    mode: "classic" - стандартне зображення, "sharp" - посилене, "sharper" - максимально посилене
+    Посилення зображення для покращення графіки.
+    mode: "classic" - стандартне зображення, "sharp" - посилене, "sharper" - максимально посилене.
     """
     if mode == "classic":
-        return
+        return img
 
     try:
-        img = Image.open(image_path)
-
         if mode == "sharp":
             # Посилення контрастності
             enhancer_contrast = ImageEnhance.Contrast(img)
@@ -161,6 +211,7 @@ def enhance_image(image_path: str, mode: str = "classic"):
             # Легке посилення різкості
             enhancer_sharpness = ImageEnhance.Sharpness(img)
             img = enhancer_sharpness.enhance(1.5)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=130, threshold=3))
 
         elif mode == "sharper":
             # Максимальне посилення контрастності
@@ -174,48 +225,33 @@ def enhance_image(image_path: str, mode: str = "classic"):
             # Максимальне посилення різкості
             enhancer_sharpness = ImageEnhance.Sharpness(img)
             img = enhancer_sharpness.enhance(2.0)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.8, percent=180, threshold=2))
 
             # Посилення яскравості
             enhancer_brightness = ImageEnhance.Brightness(img)
             img = enhancer_brightness.enhance(1.1)
 
-        img.save(image_path, quality=95, optimize=False)
     except Exception as e:
         print(f"⚠️ Помилка при посиленні зображення: {e}")
 
+    return img
 
-def generate_2d_spectrogram(audio_path: str, output_path: str,
-                            colormap: str = "magma", scale: str = "linear", n_fft: int = 2048,
-                            mode: str = "classic", use_gpu: bool = True) -> dict:
-    """
-    Генерація 2D спектрограми та збереження як PNG
-    scale: "linear", "log", "mel"
-    n_fft: FFT size (256, 512, 1024, 2048, 4096, 8192, 16384)
-    mode: "classic", "sharp", "sharper" - динамічний діапазон
-    use_gpu: використовувати GPU обробку якщо доступна
-    """
-    # Завантаження аудіо
-    audio, sr = librosa.load(audio_path, sr=None, mono=True)
-    duration = librosa.get_duration(y=audio, sr=sr)
 
-    # Обчислення спектрограми
-    hop_length = n_fft // 4
-    spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
-
-    # Контроль динамічного діапазону залежно від Mode
-    mode_top_db = {
-        "classic": None,    # Вся шкала - не обрізаємо
-        "sharp": 80,        # Стандартний діапазон
-        "sharper": 50       # Вузький діапазон для максимальної контрастності
-    }
-    top_db = mode_top_db.get(mode, None)
-
-    # Застосування top_db для нормалізації
-    if top_db is not None:
-        spectrogram_db = np.maximum(spectrogram_db, spectrogram_db.max() - top_db)
-
-    # Створення візуалізації (4K resolution: 3840x2160)
-    fig, ax = plt.subplots(figsize=(22.8, 12.8), dpi=168)
+def render_spectrogram_figure(
+    spectrogram_db: np.ndarray,
+    sr: int,
+    hop_length: int,
+    *,
+    colormap: str,
+    scale: str,
+    vmin: float,
+    vmax: float,
+    figsize: tuple,
+    dpi: int,
+    font_scale: float,
+):
+    """Створює фігуру спектрограми з узгодженим стилем."""
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     # Кастомна кольорова карта
     if colormap == "custom":
@@ -231,10 +267,23 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
     # Вибір осі Y залежно від типу масштаба
     y_axis_map = {
         "linear": "hz",
-        "log": "log",
+        "log": "hz",
         "mel": "mel",
     }
     y_axis = y_axis_map.get(scale, "hz")
+
+    nyquist = sr / 2.0
+    display_min = LOG_MIN_HZ if scale == "log" else FREQ_MIN_HZ
+    display_max = min(
+        FREQ_MAX_HZ,
+        math.ceil(nyquist / MAX_FREQ_ROUND_HZ) * MAX_FREQ_ROUND_HZ
+    )
+    if display_max <= display_min:
+        display_max = display_min + MAX_FREQ_ROUND_HZ
+
+    fmax_data = min(display_max, nyquist)
+    if fmax_data <= display_min:
+        fmax_data = display_min + 1.0
 
     img = librosa.display.specshow(
         spectrogram_db,
@@ -243,43 +292,170 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
         x_axis='time',
         y_axis=y_axis,
         cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        fmin=display_min,
+        fmax=fmax_data,
+        shading='nearest',
+        antialiased=False,
         ax=ax
     )
-    
+
+    label_size = max(5, int(round(12 * font_scale)))
+    title_size = max(6, int(round(14 * font_scale)))
+    tick_size = max(5, int(round(10 * font_scale)))
+    cbar_tick_size = max(5, int(round(9 * font_scale)))
+    cbar_label_size = max(5, int(round(10 * font_scale)))
+    title_pad = max(3, int(round(10 * font_scale)))
+
     # Встановлення labels осей
     y_label_map = {
-        "linear": "Частота (Гц)",
-        "log": "Частота (Гц, log)",
-        "mel": "Mel-частота",
-        "bark": "Bark-частота"
+        "linear": "Frequency (Hz)",
+        "log": "Frequency (Hz, pseudo log)",
+        "mel": "Frequency (Hz, mel scale)",
+        "bark": "Bark frequency"
     }
-    y_label = y_label_map.get(scale, "Частота (Гц)")
+    y_label = y_label_map.get(scale, "Frequency (Hz)")
 
-    ax.set_xlabel('Час (с)', fontsize=12, color='white')
-    ax.set_ylabel(y_label, fontsize=12, color='white')
-    ax.set_title('Спектрограма аудіо', fontsize=14, color='white', pad=10)
-    
+    ax.set_xlabel('Time (s)', fontsize=label_size, color='white')
+    ax.set_ylabel(y_label, fontsize=label_size, color='white')
+    ax.set_title('Audio Spectrogram', fontsize=title_size, color='white', pad=title_pad)
+
     # Стилізація
     fig.patch.set_facecolor('#0d0221')
     ax.set_facecolor('#0d0221')
-    ax.tick_params(colors='white')
+    ax.tick_params(colors='white', labelsize=tick_size)
     for spine in ax.spines.values():
         spine.set_color('#415a77')
-    
+
+    if scale == "log":
+        ax.set_yscale('symlog', linthresh=LOG_LINTHRESH_HZ, base=LOG_BASE)
+
+    axis_min = display_min
+    axis_max = display_max
+
+    ax.set_ylim(axis_min, axis_max)
+
+    if scale == "log":
+        ticks = [
+            display_min, 50, 100, 200, 500,
+            1000, 2000, 5000, 10000, 20000,
+            display_max
+        ]
+        ticks = [tick for tick in ticks if display_min <= tick <= display_max]
+        ticks = sorted(set(round(tick, 6) for tick in ticks))
+        ax.set_yticks(ticks)
+        formatter = ScalarFormatter()
+        formatter.set_scientific(False)
+        formatter.set_useOffset(False)
+        ax.yaxis.set_major_formatter(formatter)
+    elif scale == "mel":
+        tick_hz = [
+            display_min, 50, 100, 200, 500,
+            1000, 2000, 5000, 10000, 20000,
+            display_max
+        ]
+        tick_hz = [tick for tick in tick_hz if display_min <= tick <= display_max]
+        tick_hz = sorted(set(round(tick, 6) for tick in tick_hz))
+        ax.set_yticks(tick_hz)
+        ax.set_yticklabels([str(int(round(tick))) for tick in tick_hz])
+    else:
+        ticks = [tick for tick in ax.get_yticks() if display_min <= tick <= display_max]
+        ticks.extend([display_min, display_max])
+        ticks = sorted(set(round(tick, 6) for tick in ticks))
+        ax.set_yticks(ticks)
+
     # Кольорова шкала
-    cbar = fig.colorbar(img, ax=ax, format='%+2.0f дБ')
-    cbar.ax.yaxis.set_tick_params(color='white')
+    cbar = fig.colorbar(img, ax=ax, format='%+2.0f dB')
+    cbar.ax.yaxis.set_tick_params(color='white', labelsize=cbar_tick_size)
     cbar.outline.set_edgecolor('#415a77')
     plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
-    cbar.set_label('Інтенсивність (дБ)', color='white')
-    
-    plt.tight_layout()
-    plt.savefig(output_path, facecolor=fig.get_facecolor(),
-                edgecolor='none', bbox_inches='tight')
-    plt.close()
+    cbar.set_label('Intensity (dB)', color='white', fontsize=cbar_label_size)
 
-    # Посилення зображення для покращення графіки
-    enhance_image(output_path, mode)
+    plt.tight_layout()
+    return fig
+
+
+def save_figure_image(fig: plt.Figure, output_path: str, mode: str) -> None:
+    """Зберігає фігуру в потрібний формат з одним JPEG-кодуванням."""
+    buffer = BytesIO()
+    fig.savefig(
+        buffer,
+        format="png",
+        facecolor=fig.get_facecolor(),
+        edgecolor='none',
+        bbox_inches='tight'
+    )
+    plt.close(fig)
+    buffer.seek(0)
+    img = Image.open(buffer)
+    img.load()
+    buffer.close()
+
+    if IMAGE_FORMAT == "jpeg":
+        img = img.convert("RGB")
+
+    img = apply_image_enhancements(img, mode)
+
+    if IMAGE_FORMAT == "jpeg":
+        img.save(
+            output_path,
+            format="JPEG",
+            quality=JPEG_QUALITY,
+            subsampling=JPEG_SUBSAMPLING,
+            optimize=False
+        )
+    else:
+        img.save(output_path, format="PNG", optimize=False)
+
+
+def generate_2d_spectrogram(audio_path: str, output_path: str,
+                            colormap: str = "magma", scale: str = "linear", n_fft: int = 2048,
+                            mode: str = "classic", use_gpu: bool = True) -> dict:
+    """
+    Генерація 2D спектрограми та збереження як JPEG
+    scale: "linear", "log", "mel"
+    n_fft: FFT size (256, 512, 1024, 2048, 4096, 8192, 16384)
+    mode: "classic", "sharp", "sharper" - динамічний діапазон
+    use_gpu: використовувати GPU обробку якщо доступна
+    """
+    # Завантаження аудіо
+    audio, sr = librosa.load(audio_path, sr=None, mono=True)
+    duration = librosa.get_duration(y=audio, sr=sr)
+
+    mode_config = get_mode_config(mode)
+
+    # Обчислення спектрограми
+    hop_length = max(1, n_fft // mode_config["hop_div"])
+    if mode_config["preemphasis"] is not None:
+        audio = librosa.effects.preemphasis(audio, coef=mode_config["preemphasis"])
+    spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
+
+    # Контроль динамічного діапазону залежно від Mode
+    vmax = spectrogram_db.max()
+    vmax_percentile = mode_config["vmax_percentile"]
+    if vmax_percentile is not None:
+        vmax = np.percentile(spectrogram_db, vmax_percentile)
+
+    if mode_config["top_db"] is not None:
+        vmin = vmax - mode_config["top_db"]
+        spectrogram_db = np.maximum(spectrogram_db, vmin)
+    else:
+        vmin = spectrogram_db.min()
+
+    fig = render_spectrogram_figure(
+        spectrogram_db,
+        sr,
+        hop_length,
+        colormap=colormap,
+        scale=scale,
+        vmin=vmin,
+        vmax=vmax,
+        figsize=FINAL_FIGSIZE,
+        dpi=FINAL_DPI,
+        font_scale=1.0
+    )
+    save_figure_image(fig, output_path, mode)
 
     return {
         "duration": round(duration, 2),
@@ -293,7 +469,7 @@ def generate_2d_preview(audio_path: str, output_path: str,
                        colormap: str = "magma", scale: str = "linear", n_fft: int = 2048,
                        mode: str = "classic", use_gpu: bool = True) -> dict:
     """
-    Генерація невеликого превʼю спектрограми (320px ширини)
+    Генерація невеликого превʼю спектрограми (320px ширини) у JPEG
     Швидша версія для реального часу
     mode: "classic", "sharp", "sharper" - динамічний діапазон
     use_gpu: використовувати GPU обробку якщо доступна
@@ -302,72 +478,39 @@ def generate_2d_preview(audio_path: str, output_path: str,
     audio, sr = librosa.load(audio_path, sr=None, mono=True)
     duration = librosa.get_duration(y=audio, sr=sr)
 
+    mode_config = get_mode_config(mode)
+
     # Обчислення спектрограми
-    hop_length = n_fft // 4
+    hop_length = max(1, n_fft // mode_config["hop_div"])
+    if mode_config["preemphasis"] is not None:
+        audio = librosa.effects.preemphasis(audio, coef=mode_config["preemphasis"])
     spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
 
     # Контроль динамічного діапазону залежно від Mode
-    mode_top_db = {
-        "classic": None,    # Вся шкала - не обрізаємо
-        "sharp": 80,        # Стандартний діапазон
-        "sharper": 50       # Вузький діапазон для максимальної контрастності
-    }
-    top_db = mode_top_db.get(mode, None)
+    vmax = spectrogram_db.max()
+    vmax_percentile = mode_config["vmax_percentile"]
+    if vmax_percentile is not None:
+        vmax = np.percentile(spectrogram_db, vmax_percentile)
 
-    # Застосування top_db для нормалізації
-    if top_db is not None:
-        spectrogram_db = np.maximum(spectrogram_db, spectrogram_db.max() - top_db)
-
-    # Створення превʼю (320px ширини = 1.8 дюйми при 176 dpi)
-    fig, ax = plt.subplots(figsize=(1.8, 1.012), dpi=176)
-
-    # Кольорова карта
-    if colormap == "custom":
-        colors = ['#0d0221', '#0d1b2a', '#1b263b', '#415a77',
-                  '#778da9', '#e0e1dd', '#ff6b6b', '#ffd93d']
-        custom_cmap = LinearSegmentedColormap.from_list("audio_spectrum", colors)
-        cmap = custom_cmap
-    elif colormap == "gray":
-        cmap = "gray"
+    if mode_config["top_db"] is not None:
+        vmin = vmax - mode_config["top_db"]
+        spectrogram_db = np.maximum(spectrogram_db, vmin)
     else:
-        cmap = colormap
+        vmin = spectrogram_db.min()
 
-    # Вибір осі Y залежно від типу масштаба
-    y_axis_map = {
-        "linear": "hz",
-        "log": "log",
-        "mel": "mel",
-    }
-    y_axis = y_axis_map.get(scale, "hz")
-
-    img = librosa.display.specshow(
+    fig = render_spectrogram_figure(
         spectrogram_db,
-        sr=sr,
-        hop_length=hop_length,
-        x_axis='time',
-        y_axis=y_axis,
-        cmap=cmap,
-        ax=ax
+        sr,
+        hop_length,
+        colormap=colormap,
+        scale=scale,
+        vmin=vmin,
+        vmax=vmax,
+        figsize=PREVIEW_FIGSIZE,
+        dpi=PREVIEW_DPI,
+        font_scale=PREVIEW_FONT_SCALE
     )
-
-    ax.set_xlabel('', fontsize=6, color='white')
-    ax.set_ylabel('', fontsize=6, color='white')
-    ax.tick_params(labelsize=5)
-
-    # Стилізація
-    fig.patch.set_facecolor('#0d0221')
-    ax.set_facecolor('#0d0221')
-    ax.tick_params(colors='white')
-    for spine in ax.spines.values():
-        spine.set_color('#415a77')
-
-    plt.tight_layout(pad=0.1)
-    plt.savefig(output_path, facecolor=fig.get_facecolor(),
-                edgecolor='none', bbox_inches='tight', pad_inches=0.02)
-    plt.close()
-
-    # Посилення зображення для покращення графіки
-    enhance_image(output_path, mode)
+    save_figure_image(fig, output_path, mode)
 
     return {
         "duration": round(duration, 2),
@@ -378,7 +521,7 @@ def generate_2d_preview(audio_path: str, output_path: str,
 
 
 
-async def process_audio_task(task_id: str, audio_path: str,
+async def process_audio_task(task_id: str, audio_path: str, original_stem: str,
                              colormap: str, scale: str, fft_size: int, mode: str = "classic", use_gpu: bool = True):
     """Асинхронна обробка аудіо"""
     try:
@@ -386,8 +529,8 @@ async def process_audio_task(task_id: str, audio_path: str,
         tasks_status[task_id]["message"] = "Обробка аудіо..."
         tasks_status[task_id]["progress"] = 10
 
-        base_name = Path(audio_path).stem
-        output_2d = OUTPUT_DIR / f"{task_id}_{base_name}_2d.png"
+        safe_stem = Path(original_stem).stem or "audio"
+        output_2d = OUTPUT_DIR / f"{task_id}_{safe_stem}_2d{IMAGE_EXT}"
 
         # Генерація 2D спектрограми
         tasks_status[task_id]["message"] = "Генерація 2D спектрограми..."
@@ -487,6 +630,7 @@ async def upload_audio(
 
     # Збереження файлу
     file_ext = Path(file.filename).suffix
+    original_stem = Path(file.filename).stem or "audio"
     temp_path = UPLOAD_DIR / f"{task_id}{file_ext}"
 
     with open(temp_path, "wb") as buffer:
@@ -506,6 +650,7 @@ async def upload_audio(
         process_audio_task,
         task_id,
         str(temp_path),
+        original_stem,
         colormap,
         scale.lower(),
         fft_size,
@@ -566,7 +711,7 @@ async def generate_preview(
 
         # Генерація унікального імені файлу на основі параметрів
         params_hash = generate_preview_hash(colormap, scale, fft_size, mode)
-        preview_path = OUTPUT_DIR / f"{temp_id}_{params_hash}_preview.png"
+        preview_path = OUTPUT_DIR / f"{temp_id}_{params_hash}_preview{IMAGE_EXT}"
 
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -642,7 +787,7 @@ async def download_4k_spectrogram(
         # Збереження тимчасового файлу
         temp_id = generate_task_id()
         temp_path = UPLOAD_DIR / f"{temp_id}{Path(file.filename).suffix}"
-        output_path = OUTPUT_DIR / f"{temp_id}_4k.png"
+        output_path = OUTPUT_DIR / f"{temp_id}_4k{IMAGE_EXT}"
 
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -654,10 +799,11 @@ async def download_4k_spectrogram(
         os.remove(temp_path)
 
         # Повернення файлу для завантаження
+        media_type = "image/jpeg" if IMAGE_FORMAT == "jpeg" else "image/png"
         return FileResponse(
             path=str(output_path),
-            filename=f"spectrogram_4k_{temp_id}.png",
-            media_type="image/png"
+            filename=f"spectrogram_4k_{temp_id}{IMAGE_EXT}",
+            media_type=media_type
         )
 
     except Exception as e:
@@ -670,8 +816,14 @@ async def download_file(filename: str):
     file_path = OUTPUT_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Файл не знайдено")
-    
-    media_type = "image/png" if filename.endswith(".png") else "application/octet-stream"
+
+    lower_name = filename.lower()
+    if lower_name.endswith((".jpg", ".jpeg")):
+        media_type = "image/jpeg"
+    elif lower_name.endswith(".png"):
+        media_type = "image/png"
+    else:
+        media_type = "application/octet-stream"
     return FileResponse(
         path=str(file_path),
         filename=filename,
@@ -684,7 +836,7 @@ async def cleanup_old_files(max_age_hours: int = 24):
     """Очищення старих файлів"""
     cutoff = datetime.now() - timedelta(hours=max_age_hours)
     removed = 0
-    
+
     for directory in [OUTPUT_DIR, UPLOAD_DIR]:
         for file in directory.iterdir():
             if file.is_file():
@@ -692,7 +844,7 @@ async def cleanup_old_files(max_age_hours: int = 24):
                 if mtime < cutoff:
                     file.unlink()
                     removed += 1
-    
+
     return {"removed_files": removed}
 
 

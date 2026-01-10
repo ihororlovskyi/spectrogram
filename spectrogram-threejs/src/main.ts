@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import colormap from 'colormap';
 
 // Constants
-let frequencySamples: number = 2048; // 1024 — кількість бінів FFT, що визначає вертикальну роздільність.
-let timeSamples: number = 512; // 800 — кількість часових зрізів по горизонталі.
-let nVertices: number = (frequencySamples + 1) * (timeSamples + 1); // 821025 — загальна кількість вершин сітки (точок).
-let xSegments: number = timeSamples; // 800 — сегментів по осі X (рівно timeSamples).
-let ySegments: number = frequencySamples; // 1024 — сегментів по осі Y (рівно frequencySamples).
-let xSize: number = 20; // 20 — ширина спектрограми по осі X (Hz)
-let ySize: number = 20; // 20 — висота по осі Y (гучність)
-let zSize: number = 20; // 40 — довжина по осі Z (час)
+let frequencyBins: number = 512; // кількість бінів FFT (frequencyBinCount).
+let frequencySegments: number = 256; // кількість вершин по осі частот (як у WebGL).
+let timeSamples: number = 256; // кількість вершин по осі часу.
+let nVertices: number = frequencySegments * timeSamples; // загальна кількість вершин сітки.
+let xSegments: number = timeSamples; // кількість вершин по осі X (рівно timeSamples).
+let ySegments: number = frequencySegments; // кількість вершин по осі Y (рівно frequencySegments).
+let xSize: number = 11; // ширина спектрограми по осі X
+let ySize: number = 11; // висота по осі Y
+let zSize: number = 11; // довжина по осі Z
 const RAD_TO_DEG: number = 180 / Math.PI; // 57.29577951308232 — коефіцієнт перетворення радіанів у градуси.
 type ScaleMode = 'linear' | 'log' | 'mel'; // Можливі режимі масштабування спектрограми.
 type ColormapMode = 'gray' | 'inferno' | 'rainbow'; // Доступні кольорові мапи.
@@ -18,56 +18,140 @@ type ColormapMode = 'gray' | 'inferno' | 'rainbow'; // Доступні коль
 /**
  * Initialize and start the application
  */
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+const lerp = (start: number, end: number, t: number): number => start + (end - start) * t;
+
 /**
- * Generate a grayscale colormap: white (full alpha) for loud, black (zero alpha) for quiet
+ * Generate a grayscale colormap: black for quiet, white for loud (matches WebGL)
  */
 const generateGrayColormap = (nshades: number): [number, number, number, number][] => {
   const colors: [number, number, number, number][] = [];
   for (let i = 0; i < nshades; i++) {
     const value = i / (nshades - 1);
     const gray = Math.round(255 * value);
-    const alpha = value;
-    colors.push([gray, gray, gray, alpha]);
+    colors.push([gray, gray, gray, 255]);
+  }
+  return colors;
+};
+
+const infernoColormap = (t: number): [number, number, number] => {
+  const c0: [number, number, number] = [0.0, 0.0, 0.015];
+  const c1: [number, number, number] = [0.258, 0.039, 0.406];
+  const c2: [number, number, number] = [0.578, 0.148, 0.404];
+  const c3: [number, number, number] = [0.865, 0.316, 0.226];
+  const c4: [number, number, number] = [0.988, 0.645, 0.039];
+  const c5: [number, number, number] = [0.988, 1.0, 0.644];
+
+  const value = clamp(t, 0, 1);
+  let from = c0;
+  let to = c1;
+  let localT = value / 0.2;
+
+  if (value < 0.2) {
+    from = c0;
+    to = c1;
+    localT = value / 0.2;
+  } else if (value < 0.4) {
+    from = c1;
+    to = c2;
+    localT = (value - 0.2) / 0.2;
+  } else if (value < 0.6) {
+    from = c2;
+    to = c3;
+    localT = (value - 0.4) / 0.2;
+  } else if (value < 0.8) {
+    from = c3;
+    to = c4;
+    localT = (value - 0.6) / 0.2;
+  } else {
+    from = c4;
+    to = c5;
+    localT = (value - 0.8) / 0.2;
+  }
+
+  return [
+    lerp(from[0], to[0], localT),
+    lerp(from[1], to[1], localT),
+    lerp(from[2], to[2], localT)
+  ];
+};
+
+const hsvToRgb = (hue: number, saturation: number, lightness: number): [number, number, number] => {
+  const chroma = lightness * saturation;
+  const hueDash = hue / 60.0;
+  const x = chroma * (1.0 - Math.abs((hueDash % 2) - 1.0));
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (hueDash < 1.0) {
+    r = chroma;
+    g = x;
+  } else if (hueDash < 2.0) {
+    r = x;
+    g = chroma;
+  } else if (hueDash < 3.0) {
+    g = chroma;
+    b = x;
+  } else if (hueDash < 4.0) {
+    g = x;
+    b = chroma;
+  } else if (hueDash < 5.0) {
+    r = x;
+    b = chroma;
+  } else if (hueDash < 6.0) {
+    r = chroma;
+    b = x;
+  }
+
+  return [r, g, b];
+};
+
+const generateInfernoColormap = (nshades: number): [number, number, number, number][] => {
+  const colors: [number, number, number, number][] = [];
+  for (let i = 0; i < nshades; i++) {
+    const t = i / (nshades - 1);
+    const [r, g, b] = infernoColormap(t);
+    colors.push([Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 255]);
+  }
+  return colors;
+};
+
+const generateRainbowColormap = (nshades: number): [number, number, number, number][] => {
+  const colors: [number, number, number, number][] = [];
+  for (let i = 0; i < nshades; i++) {
+    const t = i / (nshades - 1);
+    const hue = 360.0 - (t * 360.0);
+    const [r, g, b] = hsvToRgb(hue, 1.0, 1.0);
+    colors.push([Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), 255]);
   }
   return colors;
 };
 
 /**
- * Generate colormap colors from colormap library or custom functions
+ * Generate colormap colors to match the WebGL shaders
  */
 const generateColormap = (mode: ColormapMode, nshades: number): [number, number, number, number][] => {
   if (mode === 'gray') {
     return generateGrayColormap(nshades);
   } else if (mode === 'inferno') {
-    return colormap({
-      colormap: 'inferno',
-      nshades: nshades,
-      format: 'rgba',
-      alpha: 1
-    });
+    return generateInfernoColormap(nshades);
   } else if (mode === 'rainbow') {
-    return colormap({
-      colormap: 'rainbow',
-      nshades: nshades,
-      format: 'rgba',
-      alpha: 1
-    });
+    return generateRainbowColormap(nshades);
   }
-  // Default to inferno
-  return colormap({
-    colormap: 'inferno',
-    nshades: nshades,
-    format: 'rgba',
-    alpha: 1
-  });
+  return generateInfernoColormap(nshades);
 };
 
 const init = async function(): Promise<void> {
 
-  const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
   const micButton = document.getElementById('mic-button') as HTMLButtonElement | null;
+  const demoOnsetButton = document.getElementById('demo-onset-button') as HTMLButtonElement | null;
   const demoButton = document.getElementById('demo-button') as HTMLButtonElement | null;
   const demoGazMaskButton = document.getElementById('demo-gazmask-button') as HTMLButtonElement | null;
+  const demoGazMaskButton2 = document.getElementById('demo-gazmask-button-2') as HTMLButtonElement | null;
   const stopButton = document.getElementById('stop-button') as HTMLButtonElement | null;
   const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElement | null;
   const linearButton = document.getElementById('scale-linear') as HTMLButtonElement | null;
@@ -76,31 +160,18 @@ const init = async function(): Promise<void> {
   const grayButton = document.getElementById('colormap-gray') as HTMLButtonElement | null;
   const infernoButton = document.getElementById('colormap-inferno') as HTMLButtonElement | null;
   const rainbowButton = document.getElementById('colormap-rainbow') as HTMLButtonElement | null;
-  const freqBinsIncreaseButton = document.getElementById('freq-bins-increase') as HTMLButtonElement | null;
-  const freqBinsDecreaseButton = document.getElementById('freq-bins-decrease') as HTMLButtonElement | null;
   const closePanelButton = document.getElementById('close-panel') as HTMLButtonElement | null;
   const menuButton = document.getElementById('menu-button') as HTMLButtonElement | null;
   const controlPanel = document.getElementById('controlPanel');
   const artworkToggle = document.getElementById('artwork-toggle') as HTMLButtonElement | null;
-  const artworkBlock = document.getElementById('Artwork');
+  const artworkBlock = document.getElementById('artwork');
   const eyeOpen = document.getElementById('eye-open');
   const eyeClosed = document.getElementById('eye-closed');
   const cameraAxesToggle = document.getElementById('camera-axes-toggle') as HTMLButtonElement | null;
   const spectrogramAxesToggle = document.getElementById('spectrogram-axes-toggle') as HTMLButtonElement | null;
   const statusLabel = document.getElementById('source-status');
-  const infoFreqRange = document.getElementById('info-freq-range');
-  const infoFreqBins = document.getElementById('info-freq-bins');
-  const infoTimeSamples = document.getElementById('info-time-samples');
-  const infoFFTSize = document.getElementById('info-fft-size');
-  const infoSpectrogramHeight = document.getElementById('info-spectrogram-height');
-  const infoSpectrogramWidth = document.getElementById('info-spectrogram-width');
-  const infoSpectrogramLength = document.getElementById('info-spectrogram-length');
-  const infoCameraX = document.getElementById('info-camera-x');
-  const infoCameraY = document.getElementById('info-camera-y');
-  const infoCameraZ = document.getElementById('info-camera-z');
-  const infoRotationX = document.getElementById('info-rotation-x');
-  const infoRotationY = document.getElementById('info-rotation-y');
-  const infoRotationZ = document.getElementById('info-rotation-z');
+  const dropzoneInput = document.getElementById('dropzone-input') as HTMLInputElement | null;
+  const dropzone = document.getElementById('audio-dropzone');
   const angleRotateXButton = document.getElementById('angle-rotate-x') as HTMLButtonElement | null;
   const angleRotateYButton = document.getElementById('angle-rotate-y') as HTMLButtonElement | null;
   const angleRotateZButton = document.getElementById('angle-rotate-z') as HTMLButtonElement | null;
@@ -123,20 +194,54 @@ const init = async function(): Promise<void> {
   // Initialize Audio Context
   const ACTX: AudioContext = new AudioContext();
   const ANALYSER: AnalyserNode = ACTX.createAnalyser();
-  ANALYSER.fftSize = 4096;
-  ANALYSER.smoothingTimeConstant = 0.64;
+  ANALYSER.fftSize = frequencyBins * 2;
+  ANALYSER.smoothingTimeConstant = 0;
+
+  // Log FFT configuration
+  console.log(`FFT Size: ${ANALYSER.fftSize}`);
 
   let mediaStream: MediaStream | null = null;
   let micSource: MediaStreamAudioSourceNode | null = null;
   let bufferSource: AudioBufferSourceNode | null = null;
+  let currentBuffer: AudioBuffer | null = null;
+  let playStartTime: number = 0;
+  let pauseOffset: number = 0;
+  let isPlayingBuffer: boolean = false;
+  let waveformData: Float32Array | null = null;
+  let waveformWidth: number = 0;
+  let waveformDuration: number = 0;
 
-  const setStatus = (text: string): void => {
-    if (statusLabel) {
-      statusLabel.textContent = text;
+  const buildWaveformData = (audioBuffer: AudioBuffer, targetWidth: number = 2048): Float32Array => {
+    const channelData = audioBuffer.getChannelData(0);
+    const samplesPerPixel = Math.max(1, Math.floor(channelData.length / targetWidth));
+    const data = new Float32Array(targetWidth * 2);
+
+    for (let i = 0; i < targetWidth; i++) {
+      let min = 1.0;
+      let max = -1.0;
+      const start = i * samplesPerPixel;
+      const end = Math.min(start + samplesPerPixel, channelData.length);
+
+      for (let j = start; j < end; j++) {
+        const sample = channelData[j];
+        if (sample < min) min = sample;
+        if (sample > max) max = sample;
+      }
+
+      data[i * 2] = min;
+      data[i * 2 + 1] = max;
     }
+
+    return data;
   };
 
-  const disconnectSources = (): void => {
+  const setWaveformFromBuffer = (audioBuffer: AudioBuffer): void => {
+    waveformData = buildWaveformData(audioBuffer, 2048);
+    waveformWidth = waveformData.length / 2;
+    waveformDuration = audioBuffer.duration;
+  };
+
+  const stopBufferPlayback = (): void => {
     if (bufferSource) {
       try {
         bufferSource.stop();
@@ -146,6 +251,60 @@ const init = async function(): Promise<void> {
       bufferSource.disconnect();
       bufferSource = null;
     }
+    isPlayingBuffer = false;
+  };
+
+  const startBufferPlayback = (offset: number): void => {
+    if (!currentBuffer || waveformDuration <= 0) {
+      return;
+    }
+    stopBufferPlayback();
+    const newBufferSource: AudioBufferSourceNode = ACTX.createBufferSource();
+    newBufferSource.buffer = currentBuffer;
+    newBufferSource.loop = true;
+    newBufferSource.connect(ANALYSER);
+    newBufferSource.connect(ACTX.destination);
+    const safeOffset = Math.max(0, Math.min(offset, waveformDuration));
+    newBufferSource.start(0, safeOffset);
+    bufferSource = newBufferSource;
+    pauseOffset = safeOffset;
+    playStartTime = ACTX.currentTime - safeOffset;
+    isPlayingBuffer = true;
+  };
+
+  const getPlaybackOffset = (): number => {
+    if (!currentBuffer || waveformDuration <= 0) return 0;
+    if (!isPlayingBuffer) return pauseOffset;
+    const elapsed = ACTX.currentTime - playStartTime;
+    const wrapped = ((elapsed % waveformDuration) + waveformDuration) % waveformDuration;
+    return wrapped;
+  };
+
+  const seekToPosition = (normalizedPos: number): void => {
+    if (!currentBuffer || waveformDuration <= 0) return;
+    const clampedPos = Math.max(0, Math.min(1, normalizedPos));
+    pauseOffset = clampedPos * waveformDuration;
+    if (!paused) {
+      startBufferPlayback(pauseOffset);
+    }
+  };
+
+  const getPlayheadPosition = (): number => {
+    if (!currentBuffer || !waveformData || waveformDuration <= 0) return 0;
+    const offset = isPlayingBuffer ? (ACTX.currentTime - playStartTime) : pauseOffset;
+    if (offset <= 0) return 0;
+    const wrapped = ((offset % waveformDuration) + waveformDuration) % waveformDuration;
+    return wrapped / waveformDuration;
+  };
+
+  const setStatus = (text: string): void => {
+    if (statusLabel) {
+      statusLabel.textContent = text;
+    }
+  };
+
+  const disconnectSources = (): void => {
+    stopBufferPlayback();
 
     if (micSource) {
       micSource.disconnect();
@@ -160,6 +319,12 @@ const init = async function(): Promise<void> {
 
   const useMicrophone = async (): Promise<void> => {
     disconnectSources();
+    waveformData = null;
+    waveformWidth = 0;
+    waveformDuration = 0;
+    currentBuffer = null;
+    pauseOffset = 0;
+    playStartTime = 0;
 
     try {
       await ACTX.resume();
@@ -182,13 +347,10 @@ const init = async function(): Promise<void> {
       await ACTX.resume();
       const arrayBuffer: ArrayBuffer = await file.arrayBuffer();
       const audioBuffer: AudioBuffer = await ACTX.decodeAudioData(arrayBuffer);
-      const newBufferSource: AudioBufferSourceNode = ACTX.createBufferSource();
-      newBufferSource.buffer = audioBuffer;
-      newBufferSource.loop = true;
-      newBufferSource.connect(ANALYSER);
-      newBufferSource.connect(ACTX.destination);
-      newBufferSource.start();
-      bufferSource = newBufferSource;
+      currentBuffer = audioBuffer;
+      setWaveformFromBuffer(audioBuffer);
+      pauseOffset = 0;
+      startBufferPlayback(0);
       setStatus(`File: ${file.name}`);
     } catch (error) {
       console.error("Failed to play file:", error);
@@ -207,13 +369,10 @@ const init = async function(): Promise<void> {
       }
       const arrayBuffer: ArrayBuffer = await response.arrayBuffer();
       const audioBuffer: AudioBuffer = await ACTX.decodeAudioData(arrayBuffer);
-      const newBufferSource: AudioBufferSourceNode = ACTX.createBufferSource();
-      newBufferSource.buffer = audioBuffer;
-      newBufferSource.loop = true;
-      newBufferSource.connect(ANALYSER);
-      newBufferSource.connect(ACTX.destination);
-      newBufferSource.start();
-      bufferSource = newBufferSource;
+      currentBuffer = audioBuffer;
+      setWaveformFromBuffer(audioBuffer);
+      pauseOffset = 0;
+      startBufferPlayback(0);
       setStatus(`File: ${label}`);
     } catch (error) {
       console.error("Failed to play file from URL:", error);
@@ -236,11 +395,11 @@ const init = async function(): Promise<void> {
     paused = !paused;
     updatePlayPauseButton();
 
-    // Pause/resume audio context
     if (paused) {
-      void ACTX.suspend();
+      pauseOffset = getPlaybackOffset();
+      stopBufferPlayback();
     } else {
-      void ACTX.resume();
+      startBufferPlayback(pauseOffset);
     }
   };
 
@@ -278,69 +437,19 @@ const init = async function(): Promise<void> {
   const width: number = window.innerWidth;
   const height: number = window.innerHeight;
   const camera: THREE.PerspectiveCamera = new THREE.PerspectiveCamera(
-    20,
+    55,
     width / height,
     1,
-    1000
-  );
-  camera.position.x = 0;
-  camera.position.y = -6.40;
-  camera.position.z = 68;
-  // camera.position.set( 0, 0, 128 );
-  camera.rotation.z = ( 90 * Math.PI );
-  camera.lookAt( 0, 0, 0 );
-
-  const scene: THREE.Scene = new THREE.Scene();
-  const overlayScene: THREE.Scene = new THREE.Scene();
-  const overlaySize: number = 336;
-  const overlayMarginTop: number = 24;
-  const overlayCamera: THREE.OrthographicCamera = new THREE.OrthographicCamera(
-    -width / 2,
-    width / 2,
-    height / 2,
-    -height / 2,
-    0.1,
     100
   );
-  overlayCamera.position.z = 10;
-  overlayCamera.lookAt(0, 0, 0);
-  overlayScene.add(overlayCamera);
-  overlayCamera.updateProjectionMatrix();
+  camera.position.set(0, 0, 14);
+  camera.lookAt(0, 0, 0);
 
-  const textureLoader = new THREE.TextureLoader();
-  const artworkUrl = '/098-3000-100%25.jpg';
-  let overlayMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
-  const updateOverlayPosition = (): void => {
-    if (overlayMesh) {
-      overlayMesh.position.set(0, overlayCamera.top - overlayMarginTop - overlaySize / 2, overlayMesh.position.z);
-    }
-  };
-  textureLoader.load(artworkUrl, (texture: THREE.Texture) => {
-    console.log('Overlay artwork loaded:', artworkUrl);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const overlayMaterial = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
-      side: THREE.DoubleSide
-    });
-    const overlayGeometry = new THREE.PlaneGeometry(overlaySize, overlaySize);
-    overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterial);
-    overlayMesh.renderOrder = 999;
-    overlayMesh.position.set(0, overlayCamera.top - overlayMarginTop - overlaySize / 2, 1);
-    overlayMesh.visible = false;
-    overlayMesh.frustumCulled = false;
-    overlayScene.add(overlayMesh);
-    updateOverlayPosition();
-  }, undefined, (error: unknown) => {
-    console.error("Failed to load overlay artwork", error);
-  });
+  const scene: THREE.Scene = new THREE.Scene();
 
   // створюємо сітку
   // GridHelper( size, divisions, colorCenterLine, colorGrid )
-  // const gridHelper = new THREE.GridHelper(10, 10); 
+  // const gridHelper = new THREE.GridHelper(10, 10);
   // scene.add(gridHelper);
 
   // const axesHelper = new THREE.AxesHelper(5); // довжина осей
@@ -350,62 +459,36 @@ const init = async function(): Promise<void> {
   const geometry: THREE.BufferGeometry = new THREE.BufferGeometry();
   const indices: number[] = [];
   let heights: Uint8Array = new Uint8Array(nVertices);
+  const scaledRow: Uint8Array = new Uint8Array(ySegments);
   let scaleMode: ScaleMode = 'mel';
   let colormapMode: ColormapMode = 'gray';
 
+  // Log FFT Scale on initialization
+  console.log(`FFT Scale: ${scaleMode.charAt(0).toUpperCase() + scaleMode.slice(1)}`);
+
   const nyquist: number = ACTX.sampleRate / 2;
-  const toMel = (freq: number): number => 2595 * Math.log10(1 + freq / 700);
-  const maxMel: number = toMel(nyquist);
+  const LOG_SCALE_BASE = 256;
 
-  const setInfoBlock = (): void => {
-    if (infoFreqRange) {
-      infoFreqRange.textContent = `0 – ${(nyquist / 1000).toFixed(1)} kHz`;
-    }
-    if (infoFreqBins) {
-      infoFreqBins.textContent = `${frequencySamples}`;
-    }
-    if (infoTimeSamples) {
-      infoTimeSamples.textContent = `${timeSamples}`;
-    }
-    if (infoFFTSize) {
-      infoFFTSize.textContent = `${ANALYSER.fftSize}`;
-    }
-    if (infoSpectrogramHeight) {
-      infoSpectrogramHeight.textContent = `${ySize} (Гучність)`;
-    }
-    if (infoSpectrogramWidth) {
-      infoSpectrogramWidth.textContent = `${xSize} (Hz)`;
-    }
-    if (infoSpectrogramLength) {
-      infoSpectrogramLength.textContent = `${zSize} (Час)`;
-    }
-    console.log(`Frequency bins: ${frequencySamples}`);
-  };
-  setInfoBlock();
-
-  const freqToNorm = (freq: number, mode: ScaleMode): number => {
+  const applyFrequencyScale = (t: number, mode: ScaleMode): number => {
     if (mode === 'linear') {
-      return freq / nyquist;
+      return t;
     }
     if (mode === 'log') {
-      const numerator: number = Math.log10(1 + freq);
-      const denominator: number = Math.log10(1 + nyquist);
-      return denominator === 0 ? 0 : numerator / denominator;
+      return Math.pow(LOG_SCALE_BASE, t - 1);
     }
-    const mel: number = toMel(freq);
-    return mel / maxMel;
+    const melMax = 2595 * Math.log10(1 + nyquist / 700);
+    const mel = t * melMax;
+    const freq = 700 * (Math.pow(10, mel / 2595) - 1);
+    return clamp(freq / nyquist, 0, 1);
   };
 
-  const buildVertices = (mode: ScaleMode): number[] => {
+  const buildVertices = (): number[] => {
     const verts: number[] = [];
-    const zSegmentSize: number = zSize / xSegments;
 
-    for (let i = 0; i <= xSegments; i++) {
-      const z: number = (i * zSegmentSize) - (zSize / 2); // час по Z
-      for (let j = 0; j <= ySegments; j++) {
-        const freq: number = (j / ySegments) * nyquist;
-        const norm: number = freqToNorm(freq, mode);
-        const x: number = (norm * xSize) - (xSize / 2); // Hz по X
+    for (let i = 0; i < xSegments; i++) {
+      const z: number = zSize * (i - (xSegments / 2)) / xSegments; // час по Z
+      for (let j = 0; j < ySegments; j++) {
+        const x: number = xSize * (j - (ySegments / 2)) / ySegments; // Hz по X
         const y: number = 0; // гучність буде по Y через displacement
         verts.push(x, y, z);
       }
@@ -413,15 +496,39 @@ const init = async function(): Promise<void> {
     return verts;
   };
 
-  const vertices: number[] = buildVertices(scaleMode);
+  const buildUVs = (): number[] => {
+    const uvs: number[] = [];
+    for (let i = 0; i < xSegments; i++) {
+      for (let j = 0; j < ySegments; j++) {
+        uvs.push(j / ySegments, i / xSegments);
+      }
+    }
+    return uvs;
+  };
+
+  const buildFrequencySampleMap = (mode: ScaleMode): Float32Array => {
+    const map = new Float32Array(ySegments);
+    const maxIndex = frequencyBins - 1;
+    for (let j = 0; j < ySegments; j++) {
+      const t = j / ySegments;
+      const scaled = applyFrequencyScale(t, mode);
+      map[j] = clamp(scaled, 0, 1) * maxIndex;
+    }
+    return map;
+  };
+
+  let frequencySampleMap: Float32Array = buildFrequencySampleMap(scaleMode);
+
+  const vertices: number[] = buildVertices();
+  const uvs: number[] = buildUVs();
 
   // Generate indices for triangles
-  for (let i = 0; i < xSegments; i++) {
-    for (let j = 0; j < ySegments; j++) {
-      const a: number = i * (ySegments + 1) + (j + 1);
-      const b: number = i * (ySegments + 1) + j;
-      const c: number = (i + 1) * (ySegments + 1) + j;
-      const d: number = (i + 1) * (ySegments + 1) + (j + 1);
+  for (let i = 0; i < xSegments - 1; i++) {
+    for (let j = 0; j < ySegments - 1; j++) {
+      const a: number = i * ySegments + (j + 1);
+      const b: number = i * ySegments + j;
+      const c: number = (i + 1) * ySegments + j;
+      const d: number = (i + 1) * ySegments + (j + 1);
 
       indices.push(a, b, d);
       indices.push(b, c, d);
@@ -430,6 +537,7 @@ const init = async function(): Promise<void> {
 
   geometry.setIndex(indices);
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   const displacementAttribute = new THREE.Uint8BufferAttribute(heights, 1);
   displacementAttribute.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('displacement', displacementAttribute);
@@ -464,14 +572,24 @@ const init = async function(): Promise<void> {
   }
 
   // Define uniforms
-  const uniforms: { vLut: { type: string; value: THREE.Vector3[] } } = {
-    vLut: { type: "v3v", value: lut }
+  const backgroundColor = new THREE.Vector3(0x17 / 255, 0x17 / 255, 0x17 / 255);
+  const heightScale = xSize / 3.5;
+  const uniforms: {
+    vLut: { type: string; value: THREE.Vector3[] };
+    uBackground: { value: THREE.Vector3 };
+    uHeightScale: { value: number };
+  } = {
+    vLut: { type: "v3v", value: lut },
+    uBackground: { value: backgroundColor },
+    uHeightScale: { value: heightScale }
   };
 
   // Setup renderer
   const renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(new THREE.Color(backgroundColor.x, backgroundColor.y, backgroundColor.z), 1);
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
   renderer.autoClear = false;
 
   const container = document.getElementById('Spectrogram');
@@ -482,23 +600,19 @@ const init = async function(): Promise<void> {
   container.appendChild(renderer.domElement);
 
   const onWindowResize = (): void => {
-    const newWidth = window.innerWidth;
-    const newHeight = window.innerHeight;
+    const rect = container.getBoundingClientRect();
+    const newWidth = rect.width;
+    const newHeight = rect.height;
 
     camera.aspect = newWidth / newHeight;
     camera.updateProjectionMatrix();
 
     renderer.setSize(newWidth, newHeight);
 
-    overlayCamera.left = -newWidth / 2;
-    overlayCamera.right = newWidth / 2;
-    overlayCamera.top = newHeight / 2;
-    overlayCamera.bottom = -newHeight / 2;
-    overlayCamera.updateProjectionMatrix();
-    updateOverlayPosition();
   };
 
   window.addEventListener('resize', onWindowResize);
+  onWindowResize();
 
   // Setup orbit controls
   const controls: OrbitControls = new OrbitControls(camera, renderer.domElement);
@@ -514,14 +628,19 @@ const init = async function(): Promise<void> {
     vertexShader: vShader.text,
     fragmentShader: fShader.text
   });
+  material.toneMapped = false;
 
   mesh = new THREE.Mesh(geometry, material);
-  // Set default rotation to 90, 90, 0
-  mesh.rotation.x = (90 * Math.PI) / 180;
-  mesh.rotation.y = (90 * Math.PI) / 180;
-  mesh.rotation.z = 0;
-
-  scene.add(mesh);
+  const rotateGroup = new THREE.Group();
+  const scaleGroup = new THREE.Group();
+  const translateGroup = new THREE.Group();
+  // Match WebGL transform order: rotate -> scale -> translate
+  rotateGroup.rotation.set((90 * Math.PI) / 180, (90 * Math.PI) / 180, 0);
+  translateGroup.position.set(-heightScale * 0.5, 0, 0);
+  rotateGroup.add(mesh);
+  scaleGroup.add(rotateGroup);
+  translateGroup.add(scaleGroup);
+  scene.add(translateGroup);
   mesh.geometry.computeVertexNormals();
 
   // Функція ease-out cubica
@@ -533,9 +652,9 @@ const init = async function(): Promise<void> {
   const getRotationInDegrees = (): { xRot: number; yRot: number; zRot: number } => {
     const RAD_TO_DEG_LOCAL = 180 / Math.PI;
     return {
-      xRot: Math.round(mesh.rotation.x * RAD_TO_DEG_LOCAL),
-      yRot: Math.round(mesh.rotation.y * RAD_TO_DEG_LOCAL),
-      zRot: Math.round(mesh.rotation.z * RAD_TO_DEG_LOCAL)
+      xRot: Math.round(rotateGroup.rotation.x * RAD_TO_DEG_LOCAL),
+      yRot: Math.round(rotateGroup.rotation.y * RAD_TO_DEG_LOCAL),
+      zRot: Math.round(rotateGroup.rotation.z * RAD_TO_DEG_LOCAL)
     };
   };
 
@@ -551,16 +670,16 @@ const init = async function(): Promise<void> {
 
     // Отримуємо початкові кути обертання
     const startRotation = {
-      x: mesh.rotation.x,
-      y: mesh.rotation.y,
-      z: mesh.rotation.z
+      x: rotateGroup.rotation.x,
+      y: rotateGroup.rotation.y,
+      z: rotateGroup.rotation.z
     };
 
     // Розраховуємо кінцеві кути обертання
     const endRotation = {
-      x: mesh.rotation.x,
-      y: mesh.rotation.y,
-      z: mesh.rotation.z
+      x: rotateGroup.rotation.x,
+      y: rotateGroup.rotation.y,
+      z: rotateGroup.rotation.z
     };
     endRotation[axis] += radians;
 
@@ -578,9 +697,9 @@ const init = async function(): Promise<void> {
 
       if (elapsed >= duration) {
         // Анімація закінчена
-        mesh.rotation.x = endRotation.x;
-        mesh.rotation.y = endRotation.y;
-        mesh.rotation.z = endRotation.z;
+        rotateGroup.rotation.x = endRotation.x;
+        rotateGroup.rotation.y = endRotation.y;
+        rotateGroup.rotation.z = endRotation.z;
         return;
       }
 
@@ -590,9 +709,9 @@ const init = async function(): Promise<void> {
       const eased: number = easeOutCubic(t);
 
       // Інтерполюємо кути обертання
-      mesh.rotation.x = startRotation.x + (endRotation.x - startRotation.x) * eased;
-      mesh.rotation.y = startRotation.y + (endRotation.y - startRotation.y) * eased;
-      mesh.rotation.z = startRotation.z + (endRotation.z - startRotation.z) * eased;
+      rotateGroup.rotation.x = startRotation.x + (endRotation.x - startRotation.x) * eased;
+      rotateGroup.rotation.y = startRotation.y + (endRotation.y - startRotation.y) * eased;
+      rotateGroup.rotation.z = startRotation.z + (endRotation.z - startRotation.z) * eased;
 
       // Продовжуємо анімацію
       requestAnimationFrame(animateFrame);
@@ -603,26 +722,16 @@ const init = async function(): Promise<void> {
   };
 
   const updateScale = (mode: ScaleMode): void => {
+    const oldMode = scaleMode;
     scaleMode = mode;
-    const scaledVertices: number[] = buildVertices(mode);
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(scaledVertices, 3));
-    geometry.computeVertexNormals();
-  };
-
-  const updateFrequencyBins = (factor: number): void => {
-    frequencySamples = Math.max(64, frequencySamples * factor);
-    ySegments = frequencySamples;
-    nVertices = (frequencySamples + 1) * (timeSamples + 1);
-
-    const newVertices: number[] = buildVertices(scaleMode);
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(newVertices, 3));
-    geometry.computeVertexNormals();
-
+    if (oldMode !== mode) {
+      console.log(`FFT Scale changed: from ${oldMode.charAt(0).toUpperCase() + oldMode.slice(1)} to ${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
+    }
+    frequencySampleMap = buildFrequencySampleMap(scaleMode);
     heights = new Uint8Array(nVertices);
-    mesh.geometry.setAttribute('displacement', new THREE.Uint8BufferAttribute(heights, 1));
-
-    setInfoBlock();
-    console.log(`Frequency bins changed to: ${frequencySamples}`);
+    const attr = mesh.geometry.getAttribute('displacement') as THREE.BufferAttribute;
+    attr.array = heights;
+    attr.needsUpdate = true;
   };
 
   // Active state management for Scale buttons
@@ -666,7 +775,13 @@ const init = async function(): Promise<void> {
   setMicActive(false);
   setStatus("Select a source");
 
-  fileInput?.addEventListener('change', async (event: Event): Promise<void> => {
+  // Dropzone click handler
+  dropzone?.addEventListener('click', () => {
+    dropzoneInput?.click();
+  });
+
+  // Dropzone file input handler
+  dropzoneInput?.addEventListener('change', async (event: Event): Promise<void> => {
     const target = event.target as HTMLInputElement;
     const file: File | undefined = target.files?.[0];
     if (!file) {
@@ -675,6 +790,40 @@ const init = async function(): Promise<void> {
     await playFile(file);
     enablePlayPauseBtn();
     setMicActive(false);
+  });
+
+  // Drag and drop handlers
+  dropzone?.addEventListener('dragover', (event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dropzone) {
+      dropzone.classList.add('border-gray-300', 'bg-white/10');
+      dropzone.classList.remove('border-gray-500');
+    }
+  });
+
+  dropzone?.addEventListener('dragleave', (event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dropzone) {
+      dropzone.classList.remove('border-gray-300', 'bg-white/10');
+      dropzone.classList.add('border-gray-500');
+    }
+  });
+
+  dropzone?.addEventListener('drop', async (event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dropzone) {
+      dropzone.classList.remove('border-gray-300', 'bg-white/10');
+      dropzone.classList.add('border-gray-500');
+    }
+    const file = event.dataTransfer?.files?.[0];
+    if (file && file.type.startsWith('audio/')) {
+      await playFile(file);
+      enablePlayPauseBtn();
+      setMicActive(false);
+    }
   });
 
   micButton?.addEventListener('click', () => {
@@ -692,14 +841,26 @@ const init = async function(): Promise<void> {
     }
   });
 
+  demoOnsetButton?.addEventListener('click', () => {
+    void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/SENCD006-01_Irukanji_-_Onset_(In)_(72)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9TRU5DRDAwNi0wMV9JcnVrYW5qaV8tX09uc2V0XyhJbilfKDcyKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MTk0NSwiZXhwIjoxNzk5NjA3OTQ1fQ.OgyQF8iUUYpAK3vK38H8CVltYGaskn7ecphcoRGPWa0', 'Irukanji - Onset (In)');
+    setMicActive(false);
+    enablePlayPauseBtn();
+  });
+
   demoButton?.addEventListener('click', () => {
-    void playFromUrl('/Irukanji_-_Percentage_Of_Yes-ness_reel_v2.mp3', 'Irukanji - Percentage Of Yes-ness');
+    void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTA0X0lydWthbmppXy1fUGVyY2VudGFnZV9PZl9ZZXMtbmVzc18oMTQ5YnBtKS1SZWVsX3YyLm1wMyIsImlhdCI6MTc2ODA3MTkwMCwiZXhwIjoxNzk5NjA3OTAwfQ.lqJwqNqbc--WJMiswXXJYFI2OpaumpNrEw7tgwpNw2o', 'Irukanji - Percentage Of Yes-ness');
     setMicActive(false);
     enablePlayPauseBtn();
   });
 
   demoGazMaskButton?.addEventListener('click', () => {
-    void playFromUrl('/098-04 Gaz Mask - The Breath Of The Elder (138bpm)_v1.mp3', 'Gaz Mask - Sic Mundus Creatus Est');
+    void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-01_Gaz%20Mask_-_Sic_Mundus_Creatus_Est_(133bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDFfR2F6IE1hc2tfLV9TaWNfTXVuZHVzX0NyZWF0dXNfRXN0XygxMzNicG0pLVJlZWxfdjEubXAzIiwiaWF0IjoxNzY4MDcyMDIxLCJleHAiOjE3OTk2MDgwMjF9.PCioHd4Xz63dzj_ujm9DczOHrNFmfvms8ML0FlJK3hA', 'Gaz Mask - Sic Mundus Creatus Est');
+    setMicActive(false);
+    enablePlayPauseBtn();
+  });
+
+  demoGazMaskButton2?.addEventListener('click', () => {
+    void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-04_Gaz_Mask_-_The_Breath_Of_The_Elder_(138bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDRfR2F6X01hc2tfLV9UaGVfQnJlYXRoX09mX1RoZV9FbGRlcl8oMTM4YnBtKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MjA4NywiZXhwIjoxNzk5NjA4MDg3fQ.anbSAf5XrFtKZvM-dpxJIO_KDB31Tl9pyByLmJg29Nk', 'Gaz Mask - The Breath Of The Elder');
     setMicActive(false);
     enablePlayPauseBtn();
   });
@@ -709,6 +870,8 @@ const init = async function(): Promise<void> {
     heights = new Uint8Array(nVertices);
     mesh.geometry.setAttribute('displacement', new THREE.Uint8BufferAttribute(heights, 1));
     setStatus("Stopped");
+    pauseOffset = 0;
+    playStartTime = 0;
     disablePlayPauseBtn();
     setMicActive(false);
   });
@@ -745,13 +908,6 @@ const init = async function(): Promise<void> {
     setActiveColormapButton(rainbowButton);
   });
 
-  freqBinsIncreaseButton?.addEventListener('click', () => {
-    updateFrequencyBins(2);
-  });
-  freqBinsDecreaseButton?.addEventListener('click', () => {
-    updateFrequencyBins(0.5);
-  });
-
   // Функція для переходу на предустановлені кути
   const setRotationToPreset = (targetX: number, targetY: number, targetZ: number): void => {
     const startRot = getRotationInDegrees();
@@ -760,9 +916,9 @@ const init = async function(): Promise<void> {
     console.log(`Rotating to preset: from`, startRot, `to`, targetRot);
 
     const startRotation = {
-      x: mesh.rotation.x,
-      y: mesh.rotation.y,
-      z: mesh.rotation.z
+      x: rotateGroup.rotation.x,
+      y: rotateGroup.rotation.y,
+      z: rotateGroup.rotation.z
     };
 
     const endRotation = {
@@ -781,9 +937,9 @@ const init = async function(): Promise<void> {
 
       if (elapsed >= duration) {
         // Анімація закінчена
-        mesh.rotation.x = endRotation.x;
-        mesh.rotation.y = endRotation.y;
-        mesh.rotation.z = endRotation.z;
+        rotateGroup.rotation.x = endRotation.x;
+        rotateGroup.rotation.y = endRotation.y;
+        rotateGroup.rotation.z = endRotation.z;
         return;
       }
 
@@ -793,9 +949,9 @@ const init = async function(): Promise<void> {
       const eased: number = easeOutCubic(t);
 
       // Інтерполюємо кути обертання
-      mesh.rotation.x = startRotation.x + (endRotation.x - startRotation.x) * eased;
-      mesh.rotation.y = startRotation.y + (endRotation.y - startRotation.y) * eased;
-      mesh.rotation.z = startRotation.z + (endRotation.z - startRotation.z) * eased;
+      rotateGroup.rotation.x = startRotation.x + (endRotation.x - startRotation.x) * eased;
+      rotateGroup.rotation.y = startRotation.y + (endRotation.y - startRotation.y) * eased;
+      rotateGroup.rotation.z = startRotation.z + (endRotation.z - startRotation.z) * eased;
 
       // Продовжуємо анімацію
       requestAnimationFrame(animateFrame);
@@ -818,11 +974,11 @@ const init = async function(): Promise<void> {
     console.log(`Flipping ${axis.toUpperCase()}: before`, currentRot);
 
     if (axis === 'x') {
-      mesh.scale.x *= -1;
+      scaleGroup.scale.x *= -1;
     } else if (axis === 'y') {
-      mesh.scale.y *= -1;
+      scaleGroup.scale.y *= -1;
     } else if (axis === 'z') {
-      mesh.scale.z *= -1;
+      scaleGroup.scale.z *= -1;
     }
 
     const afterRot = getRotationInDegrees();
@@ -860,9 +1016,24 @@ const init = async function(): Promise<void> {
     }
   });
 
+  // Close control panel when clicking outside of it
+  document.addEventListener('click', (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    const isClickInsidePanel = controlPanel?.contains(target);
+    const isClickOnMenuButton = menuButton?.contains(target);
+    const isPanelVisible = controlPanel && (controlPanel.style.display === 'block' || controlPanel.style.display === '');
+
+    if (!isClickInsidePanel && !isClickOnMenuButton && isPanelVisible) {
+      controlPanel.style.display = 'none';
+      if (menuButton) {
+        menuButton.style.display = 'block';
+      }
+    }
+  });
+
   const setArtworkVisibility = (visible: boolean): void => {
     if (artworkBlock) {
-      artworkBlock.style.display = 'none';
+      artworkBlock.style.display = visible ? 'flex' : 'none';
     }
     if (eyeOpen && eyeClosed && artworkToggle) {
       eyeOpen.style.display = visible ? 'block' : 'none';
@@ -873,17 +1044,16 @@ const init = async function(): Promise<void> {
         artworkToggle.classList.remove('btn-active');
       }
     }
-    if (overlayMesh) {
-      overlayMesh.visible = visible;
-    }
   };
 
-  // Initialize artwork as disabled
-  setArtworkVisibility(false);
+  // Initialize artwork as enabled (visible by default)
+  setArtworkVisibility(true);
 
   // Artwork visibility toggle
   artworkToggle?.addEventListener('click', () => {
-    const isVisible = overlayMesh?.visible ?? false;
+    const isVisible = artworkBlock
+      ? artworkBlock.style.display !== 'none'
+      : artworkToggle?.classList.contains('btn-active') ?? true;
     setArtworkVisibility(!isVisible);
   });
 
@@ -996,30 +1166,6 @@ const init = async function(): Promise<void> {
     setSpectrogramAxesVisibility(spectrogramAxesGroup === null);
   });
 
-  // Update camera info display
-  const updateCameraInfo = (): void => {
-    const quaternion = camera.quaternion;
-    const euler = new THREE.Euler().setFromQuaternion(quaternion, 'YXZ');
-
-    if (infoCameraX) {
-      infoCameraX.textContent = `${camera.position.x.toFixed(2)}`;
-    }
-    if (infoCameraY) {
-      infoCameraY.textContent = `${camera.position.y.toFixed(2)}`;
-    }
-    if (infoCameraZ) {
-      infoCameraZ.textContent = `${camera.position.z.toFixed(2)}`;
-    }
-    if (infoRotationX) {
-      infoRotationX.textContent = `${(euler.x * RAD_TO_DEG).toFixed(1)}°`;
-    }
-    if (infoRotationY) {
-      infoRotationY.textContent = `${(euler.y * RAD_TO_DEG).toFixed(1)}°`;
-    }
-    if (infoRotationZ) {
-      infoRotationZ.textContent = `${(euler.z * RAD_TO_DEG).toFixed(1)}°`;
-    }
-  };
 
   // Animation loop
   const animate = function (): void {
@@ -1031,27 +1177,177 @@ const init = async function(): Promise<void> {
   const render = function (): void {
     if (!paused) {
       updateGeometry();
+    } else {
+      updateWaveformRendering();
     }
-    updateCameraInfo();
     renderer.clear();
     renderer.render(scene, camera);
-    renderer.clearDepth();
-    renderer.render(overlayScene, overlayCamera);
+  };
+
+  // Setup waveform canvas
+  const waveformCanvas = document.getElementById('waveform') as HTMLCanvasElement | null;
+  const waveformCtx = waveformCanvas?.getContext('2d');
+
+  const resizeWaveformCanvas = (): void => {
+    if (waveformCanvas) {
+      const rect = waveformCanvas.getBoundingClientRect();
+      waveformCanvas.width = rect.width;
+      waveformCanvas.height = rect.height;
+    }
+  };
+
+  resizeWaveformCanvas();
+  window.addEventListener('resize', resizeWaveformCanvas);
+  waveformCanvas?.addEventListener('click', (event: MouseEvent) => {
+    if (!waveformCanvas || !currentBuffer || waveformDuration <= 0) return;
+    const rect = waveformCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const normalizedPos = x / rect.width;
+    seekToPosition(normalizedPos);
+  });
+
+  const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result
+      ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      }
+      : { r: 0, g: 0, b: 0 };
+  };
+
+  const waveformPalette = {
+    wave: hexToRgb('#404040'),
+    progress: hexToRgb('#a3a3a3'),
+    playhead: hexToRgb('#ffffff'),
+    background: hexToRgb('#171717')
+  };
+
+  const updateWaveformRendering = (): void => {
+    if (!waveformCanvas || !waveformCtx) return;
+
+    const width = waveformCanvas.width;
+    const height = waveformCanvas.height;
+
+    if (waveformData && waveformWidth > 0) {
+      const playheadPos = getPlayheadPosition();
+      const playheadWidth = 0.001;
+      const imageData = waveformCtx.createImageData(width, height);
+      const data = imageData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = waveformPalette.background.r;
+        data[i + 1] = waveformPalette.background.g;
+        data[i + 2] = waveformPalette.background.b;
+        data[i + 3] = 255;
+      }
+
+      for (let pixelX = 0; pixelX < width; pixelX++) {
+        const normX = pixelX / width;
+        const dataPos = normX * (waveformWidth - 1);
+        const dataIndex = Math.floor(dataPos);
+        const dataIndexNext = Math.min(dataIndex + 1, waveformWidth - 1);
+        const fracPart = dataPos - dataIndex;
+
+        const minAmp1 = waveformData[dataIndex * 2];
+        const maxAmp1 = waveformData[dataIndex * 2 + 1];
+        const minAmp2 = waveformData[dataIndexNext * 2];
+        const maxAmp2 = waveformData[dataIndexNext * 2 + 1];
+
+        const minAmp = minAmp1 + (minAmp2 - minAmp1) * fracPart;
+        const maxAmp = maxAmp1 + (maxAmp2 - maxAmp1) * fracPart;
+
+        for (let pixelY = 0; pixelY < height; pixelY++) {
+          const normY = (pixelY / height) * 2.0 - 1.0;
+          const inWaveform = normY >= minAmp && normY <= maxAmp;
+          if (!inWaveform) {
+            continue;
+          }
+
+          const isPlayhead = Math.abs(normX - playheadPos) <= playheadWidth;
+          const isPlayed = normX <= playheadPos;
+          const color = isPlayhead
+            ? waveformPalette.playhead
+            : isPlayed
+              ? waveformPalette.progress
+              : waveformPalette.wave;
+          const alpha = isPlayhead ? 1.0 : isPlayed ? 0.9 : 0.7;
+
+          const pixelIndex = (pixelY * width + pixelX) * 4;
+          data[pixelIndex] = color.r;
+          data[pixelIndex + 1] = color.g;
+          data[pixelIndex + 2] = color.b;
+          data[pixelIndex + 3] = Math.round(255 * alpha);
+        }
+      }
+
+      waveformCtx.putImageData(imageData, 0, 0);
+      return;
+    }
+
+    waveformCtx.fillStyle = '#171717';
+    waveformCtx.fillRect(0, 0, width, height);
+
+    const waveformBuffer = new Uint8Array(ANALYSER.frequencyBinCount);
+    ANALYSER.getByteTimeDomainData(waveformBuffer);
+    const samplesPerPixel = waveformBuffer.length / Math.max(1, width);
+
+    waveformCtx.strokeStyle = '#404040';
+    waveformCtx.lineWidth = 1;
+    waveformCtx.beginPath();
+
+    for (let pixelX = 0; pixelX < width; pixelX++) {
+      let start = Math.floor(pixelX * samplesPerPixel);
+      let end = Math.floor((pixelX + 1) * samplesPerPixel);
+      if (end <= start) {
+        end = start + 1;
+      }
+      start = Math.min(start, waveformBuffer.length - 1);
+      end = Math.min(end, waveformBuffer.length);
+      let min = 255;
+      let max = 0;
+
+      for (let i = start; i < end; i++) {
+        const value = waveformBuffer[i];
+        if (value < min) min = value;
+        if (value > max) max = value;
+      }
+
+      const minNorm = (min / 255) * height;
+      const maxNorm = (max / 255) * height;
+      waveformCtx.moveTo(pixelX + 0.5, minNorm);
+      waveformCtx.lineTo(pixelX + 0.5, maxNorm);
+    }
+
+    waveformCtx.stroke();
   };
 
   // Update geometry with new audio data
   const updateGeometry = function (): void {
-    const audioData = new Uint8Array(frequencySamples);
+    const audioData = new Uint8Array(frequencyBins);
     ANALYSER.getByteFrequencyData(audioData);
-    const startVal: number = frequencySamples + 1;
-    const endVal: number = nVertices - startVal;
+    const rowLength: number = ySegments;
+    const lastRowStart: number = nVertices - rowLength;
 
-    heights.copyWithin(0, startVal, nVertices + 1);
-    heights.set(audioData, endVal - startVal);
+    for (let j = 0; j < ySegments; j++) {
+      const samplePos = frequencySampleMap[j];
+      const index0 = Math.floor(samplePos);
+      const index1 = Math.min(index0 + 1, frequencyBins - 1);
+      const frac = samplePos - index0;
+      const value = audioData[index0] + (audioData[index1] - audioData[index0]) * frac;
+      scaledRow[j] = Math.round(value);
+    }
+
+    heights.copyWithin(0, rowLength, nVertices);
+    heights.set(scaledRow, lastRowStart);
 
     const attr = mesh.geometry.getAttribute('displacement') as THREE.BufferAttribute;
     attr.array = heights;
     attr.needsUpdate = true;
+
+    // Update waveform
+    updateWaveformRendering();
   };
 
   // Start animation

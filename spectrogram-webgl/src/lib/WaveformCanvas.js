@@ -13,11 +13,11 @@ export class WaveformCanvas {
     this.animationId = null;
     this.isRendering = false;
 
-    // Colors
-    this.waveColor = '#808080';        // Gray for unplayed
-    this.progressColor = '#00b3ff';    // Cyan for played
-    this.playheadColor = '#ffffff';    // White for cursor
-    this.backgroundColor = '#000000';  // Black background
+    // Colors (match waveform shader colors from AnalyserView.js:767-770)
+    this.waveColor = '#404040';        // Gray for unplayed (0.5, 0.5, 0.5)
+    this.progressColor = '#a3a3a3';    // Cyan for played (0.0, 0.7, 1.0)
+    this.playheadColor = '#ffffff';    // White for cursor (1.0, 1.0, 1.0)
+    this.backgroundColor = '#171717';  // Dark gray background (matches spectrogram)
 
     // Setup
     this.setupCanvas();
@@ -94,109 +94,110 @@ export class WaveformCanvas {
     if (!this.waveformData || this.waveformWidth === 0) return;
 
     const ctx = this.ctx;
-    const centerY = canvasHeight / 2;
-    const pixelWidth = canvasWidth / this.waveformWidth;
 
-    // Get current playhead position
+    // Get current playhead position (normalized 0-1)
     const playheadPos = this.getPlayheadPosition();
+    const playheadWidth = 0.001; // Slightly wider to match shader appearance
 
-    // Draw waveform envelope
-    ctx.strokeStyle = this.waveColor;
-    ctx.fillStyle = this.waveColor;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.7;
+    // Create imageData for pixel-by-pixel drawing (much faster than fillRect)
+    const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+    const data = imageData.data;
 
-    // Draw min/max envelope lines
-    ctx.beginPath();
-    for (let i = 0; i < this.waveformWidth; i++) {
-      const minAmp = this.waveformData[i * 2];      // [-1, 1]
-      const maxAmp = this.waveformData[i * 2 + 1];  // [-1, 1]
+    // Parse colors to RGB
+    const progressRGB = this.hexToRGB(this.progressColor);
+    const waveRGB = this.hexToRGB(this.waveColor);
+    const playheadRGB = this.hexToRGB(this.playheadColor);
+    const bgRGB = this.hexToRGB(this.backgroundColor);
 
-      const x = i * pixelWidth;
-      const minY = centerY + minAmp * (canvasHeight / 2 - 2);
-      const maxY = centerY + maxAmp * (canvasHeight / 2 - 2);
+    // Fill entire canvas with background
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = bgRGB.r;
+      data[i + 1] = bgRGB.g;
+      data[i + 2] = bgRGB.b;
+      data[i + 3] = 255;
+    }
 
-      if (i === 0) {
-        ctx.moveTo(x, minY);
+    // Draw waveform: iterate through each pixel
+    for (let pixelX = 0; pixelX < canvasWidth; pixelX++) {
+      // Normalize X coordinate [0, canvasWidth] -> [0, 1]
+      const normX = pixelX / canvasWidth;
+
+      // Get waveform data at this X position with linear interpolation
+      const dataPos = normX * (this.waveformWidth - 1);
+      const dataIndex = Math.floor(dataPos);
+      const dataIndexNext = Math.min(dataIndex + 1, this.waveformWidth - 1);
+      const fracPart = dataPos - dataIndex;
+
+      if (dataIndex < 0 || dataIndex >= this.waveformWidth) continue;
+
+      // Linear interpolation between two data points
+      const minAmp1 = this.waveformData[dataIndex * 2];
+      const maxAmp1 = this.waveformData[dataIndex * 2 + 1];
+      const minAmp2 = this.waveformData[dataIndexNext * 2];
+      const maxAmp2 = this.waveformData[dataIndexNext * 2 + 1];
+
+      const minAmp = minAmp1 + (minAmp2 - minAmp1) * fracPart;
+      const maxAmp = maxAmp1 + (maxAmp2 - maxAmp1) * fracPart;
+
+      // Draw vertical line for this X position
+      for (let pixelY = 0; pixelY < canvasHeight; pixelY++) {
+        // Normalize Y coordinate [0, canvasHeight] -> [-1, 1]
+        const normY = (pixelY / canvasHeight) * 2.0 - 1.0;
+
+        // Check if pixel is within waveform envelope
+        const inWaveform = (normY >= minAmp && normY <= maxAmp) ? 1.0 : 0.0;
+
+        if (inWaveform > 0) {
+          // Determine color based on playhead
+          const isPlayhead = Math.abs(normX - playheadPos) <= playheadWidth ? 1.0 : 0.0;
+          const isPlayed = normX <= playheadPos ? 1.0 : 0.0;
+
+          let r, g, b, a;
+
+          if (isPlayhead > 0) {
+            // Playhead color (alpha 1.0)
+            r = playheadRGB.r;
+            g = playheadRGB.g;
+            b = playheadRGB.b;
+            a = 255; // 1.0 alpha
+          } else if (isPlayed > 0) {
+            // Progress color (alpha 0.9) - already played
+            r = progressRGB.r;
+            g = progressRGB.g;
+            b = progressRGB.b;
+            a = Math.round(255 * 0.9); // 0.9 alpha
+          } else {
+            // Wave color (alpha 0.7) - not yet played
+            r = waveRGB.r;
+            g = waveRGB.g;
+            b = waveRGB.b;
+            a = Math.round(255 * 0.7); // 0.7 alpha
+          }
+
+          const pixelIndex = (pixelY * canvasWidth + pixelX) * 4;
+          data[pixelIndex] = r;
+          data[pixelIndex + 1] = g;
+          data[pixelIndex + 2] = b;
+          data[pixelIndex + 3] = a;
+        }
       }
-      ctx.lineTo(x, minY);
-    }
-    ctx.stroke();
-
-    // Draw max envelope
-    ctx.beginPath();
-    for (let i = 0; i < this.waveformWidth; i++) {
-      const maxAmp = this.waveformData[i * 2 + 1];
-
-      const x = i * pixelWidth;
-      const maxY = centerY + maxAmp * (canvasHeight / 2 - 2);
-
-      if (i === 0) {
-        ctx.moveTo(x, maxY);
-      }
-      ctx.lineTo(x, maxY);
-    }
-    ctx.stroke();
-
-    // Fill waveform area with progress color up to playhead (full envelope)
-    ctx.fillStyle = this.progressColor;
-    ctx.globalAlpha = 0.5;
-
-    const playheadX = playheadPos * canvasWidth;
-
-    // Draw filled area from min to max for played portion
-    ctx.beginPath();
-
-    // Top line: max envelope from start to playhead
-    for (let i = 0; i < this.waveformWidth; i++) {
-      const maxAmp = this.waveformData[i * 2 + 1];
-      const x = i * pixelWidth;
-
-      if (x > playheadX) break;
-
-      const maxY = centerY + maxAmp * (canvasHeight / 2 - 2);
-      if (i === 0) {
-        ctx.moveTo(x, maxY);
-      } else {
-        ctx.lineTo(x, maxY);
-      }
     }
 
-    // Line to playhead at center
-    ctx.lineTo(playheadX, centerY);
-
-    // Bottom line: min envelope from playhead back to start
-    for (let i = this.waveformWidth - 1; i >= 0; i--) {
-      const minAmp = this.waveformData[i * 2];
-      const x = i * pixelWidth;
-
-      if (x > playheadX) continue;
-
-      const minY = centerY + minAmp * (canvasHeight / 2 - 2);
-      ctx.lineTo(x, minY);
-    }
-
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.globalAlpha = 1.0;
+    ctx.putImageData(imageData, 0, 0);
   }
 
-  drawPlayhead(canvasWidth, canvasHeight) {
-    const playheadPos = this.getPlayheadPosition();
-    const playheadX = playheadPos * canvasWidth;
+  hexToRGB(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+  }
 
-    // Draw playhead vertical line
-    this.ctx.strokeStyle = this.playheadColor;
-    this.ctx.lineWidth = 2;
-    this.ctx.globalAlpha = 0.9;
-
-    this.ctx.beginPath();
-    this.ctx.moveTo(playheadX, 0);
-    this.ctx.lineTo(playheadX, canvasHeight);
-    this.ctx.stroke();
-
-    this.ctx.globalAlpha = 1.0;
+  drawPlayhead() {
+    // Playhead is already drawn as part of drawWaveform
+    // This method is kept for compatibility but does nothing
   }
 
   setColors(waveColor, progressColor, playheadColor, backgroundColor) {

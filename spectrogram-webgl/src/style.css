@@ -1,21 +1,30 @@
 @import "tailwindcss";
 
 @theme {
+  --text-3xs: 0.5rem;
+  --text-2xs: 0.625rem;
   --font-quicksand: "Quicksand", sans-serif;
 }
 
 @layer base {
-  html, body {
-    @apply w-full h-full overflow-hidden bg-[#141414] font-quicksand;
+  html {
+    @apply w-full h-full;
+  }
+  body {
+    @apply w-full h-full overflow-hidden bg-[#171717] font-quicksand font-bold;
   }
 }
 
 @layer components {
+  #video {
+    width: min(100vh * 16/9, 100vw);
+    height: min(100vw * 9/16, 100vh);
+    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1.5 relative bg-neutral-800 border-10 border-neutral-700 p-1.5 z-0;
+    box-sizing: border-box;
+  }
+
   #spectrogram {
-    @apply block fixed left-0 w-full;
-    /* top: 80px; */
-    top: 0px;
-    /* height: calc(100% - 196px); */
-    height: 100%;
+    @apply block w-[70%] h-full;
+    display: block !important;
   }
 }

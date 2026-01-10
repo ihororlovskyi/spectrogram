@@ -1,20 +1,20 @@
 {
-  "name": "spectrogram-threejs",
+  "name": "vite-typescript-starter",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:api": "uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:all": "concurrently -k -n VITE,API -c green,blue \"npm run dev\" \"npm run dev:api\"",
+    "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "@types/three": "^0.182.0",
-    "colormap": "^2.3.2",
+    "concurrently": "^9.2.1",
     "tailwindcss": "^4.1.18",
-    "three": "^0.182.0",
-    "typescript": "^5.9.3",
+    "typescript": "~5.9.3",
     "vite": "^7.3.1"
   },
   "engines": {

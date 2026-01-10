@@ -28,7 +28,7 @@ void main() {
     vec4 color = mix(waveColor, progressColor, isPlayed);
 
     // Playhead cursor (vertical line) - only show on waveform
-    float playheadWidth = 0.003;
+    float playheadWidth = 0.032;
     float isPlayhead = step(abs(texCoord.x - playheadPosition), playheadWidth);
     color = mix(color, playheadColor, isPlayhead);
 

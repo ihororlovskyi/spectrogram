@@ -1,25 +1,36 @@
-/* @import "tailwindcss"; */
+@import "tailwindcss";
 
-/* @theme {
+@theme {
   --text-3xs: 0.5rem;
   --text-2xs: 0.625rem;
-  --font-quicksand: "Quicksand", sans-serif;
-} */
-
-/* @theme {
   --font-quicksand: "Quicksand", sans-serif;
 }
 
 @layer base {
-  html, body {
-    @apply w-full h-full overflow-hidden bg-[#141414] font-quicksand;
+  body {
+    @apply font-quicksand font-bold;
   }
 }
 
 @layer components {
-  #spectrogram {
-    @apply block fixed left-0 w-full;
-    top: 80px;
-    height: calc(100% - 196px);
+  #video {
+    width: min(100vh * 16/9, 100vw);
+    height: min(100vw * 9/16, 100vh);
+    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1.5 bg-neutral-800 border-10 border-neutral-700 p-1.5 z-0;
+    box-sizing: border-box;
   }
-} */
+
+  .btn-base {
+    @apply px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .btn-active {
+    @apply !border-gray-400;
+    background: rgba(255, 255, 255, 0.25) !important;
+  }
+
+  .section-label {
+    @apply mb-1.5 text-3xs text-gray-400;
+  }
+}

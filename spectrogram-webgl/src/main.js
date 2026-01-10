@@ -13,9 +13,8 @@ class SpectrogramApp {
     this.fileInput = document.getElementById('audioFile');
     this.playPauseBtn = document.getElementById('playPauseBtn');
     this.toggleControlBtn = document.getElementById('toggleControlBtn');
+    this.menuButton = document.getElementById('menu-button');
     this.controlPanel = document.getElementById('controlPanel');
-    this.burgerIcon = document.getElementById('burgerIcon');
-    this.closeIcon = document.getElementById('closeIcon');
     this.controlPanelVisible = true;
     this.statusMessage = document.getElementById('statusMessage');
     this.playIrukanji001Btn = document.getElementById('playIrukanji001Btn');
@@ -59,6 +58,7 @@ class SpectrogramApp {
     this.zoomX6Btn = document.getElementById('zoomX6Btn');
     this.increaseFreqBinsBtn = document.getElementById('increaseFreqBinsBtn');
     this.decreaseFreqBinsBtn = document.getElementById('decreaseFreqBinsBtn');
+    this.dragDropZone = document.getElementById('drag-drop-zone');
     this.player = null;
     this.analyserView = null;
     this.waveformCanvas = null;
@@ -90,26 +90,51 @@ class SpectrogramApp {
     this.analyserView.initByteBuffer();
 
     // Initialize waveform canvas
-    const waveformCanvasElement = document.getElementById('waveformCanvas');
-    this.waveformCanvas = new WaveformCanvas(waveformCanvasElement);
-    this.waveformCanvas.setPlayer(this.player);
+    const waveformCanvasElement = document.getElementById('waveform');
+    if (waveformCanvasElement) {
+      this.waveformCanvas = new WaveformCanvas(waveformCanvasElement);
+      this.waveformCanvas.setPlayer(this.player);
+    }
+
+    // Set up canvas sizing FIRST (before creating visualizers that depend on dimensions)
+    // But only resize the main canvas now
+    this.canvas.width = this.canvas.clientWidth;
+    this.canvas.height = this.canvas.clientHeight;
+    this.analyserView.axisRenderer.updateLabelCanvasSize();
+
+    window.addEventListener('resize', () => this.onResize());
 
     // Set Gray (mode 1) as default color mode (Gray: white for loud, black for quiet)
     this.analyserView.setColorMode(1);
 
     // Set Mel (mode 2) as default scale mode
+    this.currentScaleMode = 2;
+    const scaleModeNames = ['Log', 'Linear', 'Mel'];
+    console.log(`FFT Scale: ${scaleModeNames[this.currentScaleMode]}`);
     this.analyserView.setScaleMode(2);
     this.setScaleMode(2);
 
-    // Set up canvas sizing
-    this.onResize();
-    window.addEventListener('resize', () => this.onResize());
-
     // Set up control panel toggle button handler
-    this.toggleControlBtn.addEventListener('click', () => this.toggleControlPanel());
+    this.toggleControlBtn.addEventListener('click', () => this.closeControlPanel());
+
+    // Set up menu button handler
+    if (this.menuButton) {
+      this.menuButton.addEventListener('click', () => this.openControlPanel());
+    }
+
+    // Set up outside click handler to close control panel
+    document.addEventListener('click', (e) => this.handleOutsideClick(e));
 
     // Set up file input handler
     this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+
+    // Set up drag & drop handlers
+    if (this.dragDropZone) {
+      this.dragDropZone.addEventListener('dragover', (e) => this.handleDragOver(e));
+      this.dragDropZone.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+      this.dragDropZone.addEventListener('drop', (e) => this.handleDrop(e));
+      this.dragDropZone.addEventListener('click', () => this.fileInput.click());
+    }
 
     // Set up play/pause button handler
     this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
@@ -119,21 +144,21 @@ class SpectrogramApp {
 
     // Set up demo track buttons
     this.playIrukanji001Btn.addEventListener('click', () =>
-      this.loadAndPlayUrl('/tracks/SENCD006-01_Irukanji_-_Onset_(In)_(72)-Reel_v1.mp3', 'Irukanji - Onset (In) (72)')
+      this.loadAndPlayUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/SENCD006-01_Irukanji_-_Onset_(In)_(72)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9TRU5DRDAwNi0wMV9JcnVrYW5qaV8tX09uc2V0XyhJbilfKDcyKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MTk0NSwiZXhwIjoxNzk5NjA3OTQ1fQ.OgyQF8iUUYpAK3vK38H8CVltYGaskn7ecphcoRGPWa0', 'Irukanji - Onset (In) (72)')
     );
     this.playIrukanjiBtn.addEventListener('click', () =>
-      this.loadAndPlayUrl('/tracks/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3', 'Irukanji - Percentage Of Yes-ness (149bpm)')
+      this.loadAndPlayUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTA0X0lydWthbmppXy1fUGVyY2VudGFnZV9PZl9ZZXMtbmVzc18oMTQ5YnBtKS1SZWVsX3YyLm1wMyIsImlhdCI6MTc2ODA3MTkwMCwiZXhwIjoxNzk5NjA3OTAwfQ.lqJwqNqbc--WJMiswXXJYFI2OpaumpNrEw7tgwpNw2o', 'Irukanji - Percentage Of Yes-ness (149bpm)')
     );
     this.playGazMaskBtn.addEventListener('click', () =>
-      this.loadAndPlayUrl('/tracks/SENCD098-01_Gaz Mask_-_Sic_Mundus_Creatus_Est_(133bpm)-Reel_v1.mp3', 'Gaz Mask - Sic Mundus Creatus Est (133bpm)')
+      this.loadAndPlayUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-01_Gaz%20Mask_-_Sic_Mundus_Creatus_Est_(133bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDFfR2F6IE1hc2tfLV9TaWNfTXVuZHVzX0NyZWF0dXNfRXN0XygxMzNicG0pLVJlZWxfdjEubXAzIiwiaWF0IjoxNzY4MDcyMDIxLCJleHAiOjE3OTk2MDgwMjF9.PCioHd4Xz63dzj_ujm9DczOHrNFmfvms8ML0FlJK3hA', 'Gaz Mask - Sic Mundus Creatus Est (133bpm)')
     );
     this.playGazMask04Btn.addEventListener('click', () =>
-      this.loadAndPlayUrl('/tracks/SENCD098-04_Gaz_Mask_-_The_Breath_Of_The_Elder_(138bpm)-Reel_v1.mp3', 'Gaz Mask - The Breath Of The Elder (138bpm)')
+      this.loadAndPlayUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-04_Gaz_Mask_-_The_Breath_Of_The_Elder_(138bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDRfR2F6X01hc2tfLV9UaGVfQnJlYXRoX09mX1RoZV9FbGRlcl8oMTM4YnBtKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MjA4NywiZXhwIjoxNzk5NjA4MDg3fQ.anbSAf5XrFtKZvM-dpxJIO_KDB31Tl9pyByLmJg29Nk', 'Gaz Mask - The Breath Of The Elder (138bpm)')
     );
     this.playMKRL01904Btn = document.getElementById('playMKRL01904Btn');
     if (this.playMKRL01904Btn) {
       this.playMKRL01904Btn.addEventListener('click', () =>
-        this.loadAndPlayUrl('/tracks/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3', 'MKRL019-04 - 047')
+        this.loadAndPlayUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTA0X0lydWthbmppXy1fUGVyY2VudGFnZV9PZl9ZZXMtbmVzc18oMTQ5YnBtKS1SZWVsX3YyLm1wMyIsImlhdCI6MTc2ODA3MTkwMCwiZXhwIjoxNzk5NjA3OTAwfQ.lqJwqNqbc--WJMiswXXJYFI2OpaumpNrEw7tgwpNw2o', 'MKRL019-04 - 047')
       );
     }
 
@@ -230,6 +255,11 @@ class SpectrogramApp {
   }
 
   setScaleMode(mode) {
+    const scaleModeNames = ['Log', 'Linear', 'Mel'];
+    if (this.currentScaleMode !== undefined && this.currentScaleMode !== mode) {
+      console.log(`FFT Scale changed: from ${scaleModeNames[this.currentScaleMode]} to ${scaleModeNames[mode]}`);
+    }
+    this.currentScaleMode = mode;
     this.analyserView.setScaleMode(mode);
 
     // Update button styles
@@ -779,6 +809,44 @@ class SpectrogramApp {
     }
   }
 
+  handleDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.dragDropZone) {
+      this.dragDropZone.classList.add('bg-white/10', 'border-gray-400');
+      this.dragDropZone.classList.remove('border-gray-600');
+    }
+  }
+
+  handleDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.dragDropZone) {
+      this.dragDropZone.classList.remove('bg-white/10', 'border-gray-400');
+      this.dragDropZone.classList.add('border-gray-600');
+    }
+  }
+
+  handleDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.dragDropZone) {
+      this.dragDropZone.classList.remove('bg-white/10', 'border-gray-400');
+      this.dragDropZone.classList.add('border-gray-600');
+    }
+
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      // Check if file is audio
+      if (file.type.startsWith('audio/')) {
+        this.handleFileSelect({ target: { files: files } });
+      } else {
+        this.statusMessage.textContent = 'Please drop an audio file';
+      }
+    }
+  }
+
   async loadAndPlayUrl(url, trackName) {
     try {
       this.statusMessage.textContent = 'Loading audio...';
@@ -789,9 +857,12 @@ class SpectrogramApp {
       // Generate and load waveform data
       const waveformData = this.player.getWaveformData(2048);
       this.analyserView.loadWaveformData(waveformData);
-      this.waveformCanvas.loadWaveformData(waveformData);
+      if (this.waveformCanvas) {
+        this.waveformCanvas.loadWaveformData(waveformData);
+      }
 
-      await this.player.play();
+      // Load full spectrogram
+await this.player.play();
       this.startRender();
 
       this.currentTrackName = trackName;
@@ -811,16 +882,19 @@ class SpectrogramApp {
     this.canvas.width = this.canvas.clientWidth;
     this.canvas.height = this.canvas.clientHeight;
     this.analyserView.axisRenderer.updateLabelCanvasSize();
-  }
+
+    // Resize bottom spectrogram canvas
+}
 
   async handleFileSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const buttonSpan = document.querySelector('.file-button span');
+    const audioFileInput = document.getElementById('audioFile');
+    const fileLabel = audioFileInput ? audioFileInput.nextElementSibling : null;
 
     try {
-      buttonSpan.textContent = 'Loading...';
+      if (fileLabel) fileLabel.textContent = 'Loading...';
       this.statusMessage.textContent = 'Loading audio...';
       this.playPauseBtn.disabled = true;
 
@@ -829,20 +903,23 @@ class SpectrogramApp {
       // Generate and load waveform data
       const waveformData = this.player.getWaveformData(2048);
       this.analyserView.loadWaveformData(waveformData);
-      this.waveformCanvas.loadWaveformData(waveformData);
+      if (this.waveformCanvas) {
+        this.waveformCanvas.loadWaveformData(waveformData);
+      }
 
+      // Load full spectrogram
       await this.player.play();
       this.startRender();
 
       this.currentTrackName = file.name;
       this.analyserView.setShowImage(false);
 
-      buttonSpan.textContent = file.name;
+      if (fileLabel) fileLabel.textContent = file.name;
       this.playPauseBtn.disabled = false;
       this.updateUI();
     } catch (error) {
       console.error('Error loading audio file:', error);
-      buttonSpan.textContent = 'Select Audio File';
+      if (fileLabel) fileLabel.textContent = 'Select Audio File';
       this.statusMessage.textContent = 'Error: ' + error.message;
     }
   }
@@ -862,7 +939,9 @@ class SpectrogramApp {
 
     try {
       this.analyserView.doFrequencyAnalysis();
-    } catch (error) {
+
+      // Update spectrogram playhead position
+} catch (error) {
       console.error('Render error:', error);
     }
     requestAnimationFrame(() => this.draw());
@@ -870,27 +949,38 @@ class SpectrogramApp {
 
   increaseFrequencyBins() {
     this.player.increaseFrequencyBins();
-  }
+}
 
   decreaseFrequencyBins() {
     this.player.decreaseFrequencyBins();
+}
+
+  closeControlPanel() {
+    if (this.controlPanel) {
+      this.controlPanel.style.display = 'none';
+    }
+    if (this.menuButton) {
+      this.menuButton.style.display = 'block';
+    }
   }
 
-  toggleControlPanel() {
-    this.controlPanelVisible = !this.controlPanelVisible;
+  openControlPanel() {
+    if (this.controlPanel) {
+      this.controlPanel.style.display = 'block';
+    }
+    if (this.menuButton) {
+      this.menuButton.style.display = 'none';
+    }
+  }
 
-    if (this.controlPanelVisible) {
-      // Show panel
-      this.controlPanel.classList.remove('hidden', '-translate-y-full');
-      this.controlPanel.classList.add('translate-y-0');
-      this.burgerIcon.classList.add('hidden');
-      this.closeIcon.classList.remove('hidden');
-    } else {
-      // Hide panel
-      this.controlPanel.classList.add('-translate-y-full');
-      this.controlPanel.classList.remove('translate-y-0');
-      this.burgerIcon.classList.remove('hidden');
-      this.closeIcon.classList.add('hidden');
+  handleOutsideClick(event) {
+    // Check if click is outside the control panel and menu button
+    const isClickInsidePanel = this.controlPanel && this.controlPanel.contains(event.target);
+    const isClickOnMenuButton = this.menuButton && this.menuButton.contains(event.target);
+    const isPanelVisible = this.controlPanel && this.controlPanel.style.display !== 'none';
+
+    if (!isClickInsidePanel && !isClickOnMenuButton && isPanelVisible) {
+      this.closeControlPanel();
     }
   }
 

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug Spectrogram Canvas</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #171717; font-family: Arial, sans-serif; }
+    #main { display: flex; flex-direction: column; height: 100vh; }
+    #topCanvas { flex: 1; background: #222; border: 2px solid blue; }
+    #bottomCanvas { height: 100px; background: #222; border: 2px solid red; }
+    #logs {
+      position: fixed;
+      bottom: 110px;
+      right: 10px;
+      background: rgba(0,0,0,0.8);
+      color: #0f0;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 12px;
+      font-family: monospace;
+      max-width: 400px;
+      border: 1px solid #0f0;
+    }
+  </style>
+</head>
+<body>
+  <div id="main">
+    <canvas id="topCanvas"></canvas>
+    <canvas id="bottomCanvas"></canvas>
+  </div>
+  <div id="logs"></div>
+
+  <script>
+    const logsDiv = document.getElementById('logs');
+
+    function log(msg) {
+      console.log(msg);
+      const line = document.createElement('div');
+      line.textContent = msg;
+      logsDiv.appendChild(line);
+      logsDiv.scrollTop = logsDiv.scrollHeight;
+    }
+
+    // Test top canvas (2D)
+    const topCanvas = document.getElementById('topCanvas');
+    const topCtx = topCanvas.getContext('2d');
+    topCanvas.width = window.innerWidth;
+    topCanvas.height = window.innerHeight - 100;
+
+    topCtx.fillStyle = '#333';
+    topCtx.fillRect(0, 0, topCanvas.width, topCanvas.height);
+    topCtx.fillStyle = '#0f0';
+    topCtx.font = '20px Arial';
+    topCtx.fillText(`Top Canvas: ${topCanvas.width}x${topCanvas.height}`, 10, 30);
+    log(`✓ Top canvas 2D: ${topCanvas.width}x${topCanvas.height}`);
+
+    // Test bottom canvas (WebGL)
+    const bottomCanvas = document.getElementById('bottomCanvas');
+
+    log(`Bottom canvas clientWidth: ${bottomCanvas.clientWidth}`);
+    log(`Bottom canvas clientHeight: ${bottomCanvas.clientHeight}`);
+    log(`Bottom canvas offsetWidth: ${bottomCanvas.offsetWidth}`);
+    log(`Bottom canvas offsetHeight: ${bottomCanvas.offsetHeight}`);
+
+    const rect = bottomCanvas.getBoundingClientRect();
+    log(`Bottom canvas getBoundingClientRect: ${rect.width}x${rect.height}`);
+
+    bottomCanvas.width = rect.width;
+    bottomCanvas.height = rect.height;
+    log(`Bottom canvas after setting size: ${bottomCanvas.width}x${bottomCanvas.height}`);
+
+    const gl = bottomCanvas.getContext('webgl') || bottomCanvas.getContext('experimental-webgl');
+
+    if (!gl) {
+      log('✗ WebGL NOT SUPPORTED');
+    } else {
+      log('✓ WebGL context created');
+
+      const vendor = gl.getParameter(gl.VENDOR);
+      const renderer = gl.getParameter(gl.RENDERER);
+      const version = gl.getParameter(gl.VERSION);
+
+      log(`Vendor: ${vendor}`);
+      log(`Renderer: ${renderer}`);
+      log(`Version: ${version}`);
+
+      gl.clearColor(0.2, 0.2, 0.2, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      log('✓ Canvas cleared to gray');
+    }
+
+    // Test resize
+    window.addEventListener('resize', () => {
+      topCanvas.width = window.innerWidth;
+      topCanvas.height = window.innerHeight - 100;
+      topCtx.fillStyle = '#333';
+      topCtx.fillRect(0, 0, topCanvas.width, topCanvas.height);
+      topCtx.fillStyle = '#0f0';
+      topCtx.fillText(`Resized: ${topCanvas.width}x${topCanvas.height}`, 10, 30);
+
+      const newRect = bottomCanvas.getBoundingClientRect();
+      bottomCanvas.width = newRect.width;
+      bottomCanvas.height = newRect.height;
+      if (gl) {
+        gl.clearColor(0.2, 0.2, 0.2, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+    });
+  </script>
+</body>
+</html>

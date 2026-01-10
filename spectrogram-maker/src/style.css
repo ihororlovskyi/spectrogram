@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --text-3xs: 0.5rem;
+  --text-2xs: 0.625rem;
+  --font-quicksand: "Quicksand", sans-serif;
+}
+
+@layer base {
+  body {
+    @apply font-quicksand font-bold;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.spectrogram-image {
+  image-rendering: crisp-edges;
+  image-rendering: -webkit-optimize-contrast;
+}

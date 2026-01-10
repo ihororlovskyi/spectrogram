@@ -154,11 +154,13 @@ void main()
 {
     float x = applyFrequencyScale(gTexCoord0.x);
     vec4 sample = texture2D(vertexFrequencyData, vec2(x, gTexCoord0.y + vertexYOffset));
-    vec4 newPosition = vec4(gPosition.x, gPosition.y + verticalScale * sample.a, gPosition.z, 1.0);
+    // Normalize sample.a from 0-255 to 0-1 range (assuming texture is 8-bit)
+    float normalizedAmplitude = sample.a; // Already 0-1 in OpenGL
+    vec4 newPosition = vec4(gPosition.x, gPosition.y + verticalScale * normalizedAmplitude, gPosition.z, 1.0);
     gl_Position = worldViewProjection * newPosition;
     texCoord = gTexCoord0;
 
-    float amplitude = newPosition.y / verticalScale;
+    float amplitude = normalizedAmplitude;
 
     if (colorMode == 1) {
         // Gray mode: white for loud, black for quiet
