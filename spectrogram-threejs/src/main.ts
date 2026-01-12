@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import vertexShader from './shaders/vertex.glsl?raw';
+import fragmentShader from './shaders/fragment.glsl?raw';
 
 // Constants
-let frequencyBins: number = 512; // кількість бінів FFT (frequencyBinCount).
+let frequencyBins: number = 1024; // кількість бінів FFT (frequencyBinCount).
 let frequencySegments: number = 256; // кількість вершин по осі частот (як у WebGL).
 let timeSamples: number = 256; // кількість вершин по осі часу.
 let nVertices: number = frequencySegments * timeSamples; // загальна кількість вершин сітки.
@@ -14,6 +16,116 @@ let zSize: number = 11; // довжина по осі Z
 const RAD_TO_DEG: number = 180 / Math.PI; // 57.29577951308232 — коефіцієнт перетворення радіанів у градуси.
 type ScaleMode = 'linear' | 'log' | 'mel'; // Можливі режимі масштабування спектрограми.
 type ColormapMode = 'gray' | 'inferno' | 'rainbow'; // Доступні кольорові мапи.
+type CameraLogger = {
+  log: () => void;
+  check: () => void;
+};
+type SpectrogramViewOptions = {
+  containerId: string;
+  geometry: THREE.BufferGeometry;
+  material: THREE.ShaderMaterial;
+  backgroundColor: THREE.Vector3;
+  heightScale: number;
+  cameraPosition?: THREE.Vector3;
+  rotation?: THREE.Euler;
+  translation?: THREE.Vector3;
+};
+
+type SpectrogramView = {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  mesh: THREE.Mesh;
+  rotateGroup: THREE.Group;
+  scaleGroup: THREE.Group;
+  translateGroup: THREE.Group;
+  resize: () => void;
+  render: () => void;
+};
+
+const createSpectrogramView = (options: SpectrogramViewOptions): SpectrogramView | null => {
+  const container = document.getElementById(options.containerId);
+  if (!container) {
+    console.error(`Spectrogram container not found: ${options.containerId}`);
+    return null;
+  }
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 100);
+  if (options.cameraPosition) {
+    camera.position.copy(options.cameraPosition);
+  } else {
+    camera.position.set(0, 0, 12);
+  }
+  camera.lookAt(0, 0, 0);
+
+  const scene = new THREE.Scene();
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(
+    new THREE.Color(
+      options.backgroundColor.x,
+      options.backgroundColor.y,
+      options.backgroundColor.z
+    ),
+    1
+  );
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.autoClear = false;
+
+  container.appendChild(renderer.domElement);
+
+  const mesh = new THREE.Mesh(options.geometry, options.material);
+  const rotateGroup = new THREE.Group();
+  const scaleGroup = new THREE.Group();
+  const translateGroup = new THREE.Group();
+
+  if (options.rotation) {
+    rotateGroup.rotation.copy(options.rotation);
+  }
+
+  if (options.translation) {
+    translateGroup.position.copy(options.translation);
+  } else {
+    translateGroup.position.set(-options.heightScale * 0.5, 0, 0);
+  }
+
+  rotateGroup.add(mesh);
+  scaleGroup.add(rotateGroup);
+  translateGroup.add(scaleGroup);
+  scene.add(translateGroup);
+
+  const resize = (): void => {
+    const rect = container.getBoundingClientRect();
+    const newWidth = rect.width;
+    const newHeight = rect.height;
+    if (newWidth <= 0 || newHeight <= 0) {
+      return;
+    }
+
+    camera.aspect = newWidth / newHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(newWidth, newHeight);
+  };
+
+  const render = (): void => {
+    renderer.clear();
+    renderer.render(scene, camera);
+  };
+
+  return {
+    scene,
+    camera,
+    renderer,
+    mesh,
+    rotateGroup,
+    scaleGroup,
+    translateGroup,
+    resize,
+    render
+  };
+};
 
 /**
  * Initialize and start the application
@@ -164,12 +276,16 @@ const init = async function(): Promise<void> {
   const menuButton = document.getElementById('menu-button') as HTMLButtonElement | null;
   const controlPanel = document.getElementById('controlPanel');
   const artworkToggle = document.getElementById('artwork-toggle') as HTMLButtonElement | null;
-  const artworkBlock = document.getElementById('artwork');
+  const artworkBlock = document.getElementById('Tracklist');
   const eyeOpen = document.getElementById('eye-open');
   const eyeClosed = document.getElementById('eye-closed');
   const cameraAxesToggle = document.getElementById('camera-axes-toggle') as HTMLButtonElement | null;
-  const spectrogramAxesToggle = document.getElementById('spectrogram-axes-toggle') as HTMLButtonElement | null;
+  const gridXButton = document.getElementById('grid-x') as HTMLButtonElement | null;
+  const gridYButton = document.getElementById('grid-y') as HTMLButtonElement | null;
+  const gridZButton = document.getElementById('grid-z') as HTMLButtonElement | null;
   const statusLabel = document.getElementById('source-status');
+  const trackTimeCurrent = document.getElementById('TrackTimeCurrent');
+  const trackTimeTotal = document.getElementById('TrackTimeTotal');
   const dropzoneInput = document.getElementById('dropzone-input') as HTMLInputElement | null;
   const dropzone = document.getElementById('audio-dropzone');
   const angleRotateXButton = document.getElementById('angle-rotate-x') as HTMLButtonElement | null;
@@ -178,11 +294,24 @@ const init = async function(): Promise<void> {
   const angleRotateXNegButton = document.getElementById('angle-rotate-x-neg') as HTMLButtonElement | null;
   const angleRotateYNegButton = document.getElementById('angle-rotate-y-neg') as HTMLButtonElement | null;
   const angleRotateZNegButton = document.getElementById('angle-rotate-z-neg') as HTMLButtonElement | null;
+  const camera1Rotation000Button = document.getElementById('camera1-rot-0-0-0') as HTMLButtonElement | null;
+  const camera1RotationNeg90Button = document.getElementById('camera1-rot-neg90-0-neg90') as HTMLButtonElement | null;
+  const camera2Rotation000Button = document.getElementById('camera2-rot-0-0-0') as HTMLButtonElement | null;
+  const camera2RotationNeg90Button = document.getElementById('camera2-rot-neg90-0-neg90') as HTMLButtonElement | null;
+  const closeControlPanel = (): void => {
+    if (controlPanel) {
+      controlPanel.style.display = 'none';
+    }
+    if (menuButton) {
+      menuButton.style.display = 'block';
+    }
+  };
 
   // Preset buttons
   const preset000Button = document.getElementById('preset-0-0-0') as HTMLButtonElement | null;
   const preset90_90Button = document.getElementById('preset-90-90-0') as HTMLButtonElement | null;
   const preset45_45Button = document.getElementById('preset-45-45-0') as HTMLButtonElement | null;
+  const preset0_180Button = document.getElementById('preset-0-180-0') as HTMLButtonElement | null;
   const preset45_180Button = document.getElementById('preset-45-180-0') as HTMLButtonElement | null;
   const preset90_180Button = document.getElementById('preset-90-180-0') as HTMLButtonElement | null;
 
@@ -210,6 +339,24 @@ const init = async function(): Promise<void> {
   let waveformData: Float32Array | null = null;
   let waveformWidth: number = 0;
   let waveformDuration: number = 0;
+  type WaveformCache = {
+    base: HTMLCanvasElement;
+    progress: HTMLCanvasElement;
+    playhead: HTMLCanvasElement;
+    width: number;
+    height: number;
+  };
+  let waveformCache: WaveformCache | null = null;
+  let waveformCacheDirty: boolean = true;
+
+  const invalidateWaveformCache = (): void => {
+    waveformCacheDirty = true;
+  };
+
+  const clearWaveformCache = (): void => {
+    waveformCache = null;
+    waveformCacheDirty = false;
+  };
 
   const buildWaveformData = (audioBuffer: AudioBuffer, targetWidth: number = 2048): Float32Array => {
     const channelData = audioBuffer.getChannelData(0);
@@ -239,6 +386,7 @@ const init = async function(): Promise<void> {
     waveformData = buildWaveformData(audioBuffer, 2048);
     waveformWidth = waveformData.length / 2;
     waveformDuration = audioBuffer.duration;
+    invalidateWaveformCache();
   };
 
   const stopBufferPlayback = (): void => {
@@ -297,6 +445,41 @@ const init = async function(): Promise<void> {
     return wrapped / waveformDuration;
   };
 
+  const formatTime = (totalSeconds: number): string => {
+    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+      return '0:00';
+    }
+    const rounded = Math.floor(totalSeconds);
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    const seconds = rounded % 60;
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  let lastCurrentTimeText = '';
+  let lastTotalTimeText = '';
+
+  const updateTrackTimeDisplay = (): void => {
+    if (!trackTimeCurrent && !trackTimeTotal) return;
+    const total = waveformDuration > 0 ? waveformDuration : 0;
+    const current = total > 0 ? getPlaybackOffset() : 0;
+    const currentText = formatTime(current);
+    const totalText = formatTime(total);
+
+    if (trackTimeCurrent && lastCurrentTimeText !== currentText) {
+      trackTimeCurrent.textContent = currentText;
+      lastCurrentTimeText = currentText;
+    }
+    if (trackTimeTotal && lastTotalTimeText !== totalText) {
+      trackTimeTotal.textContent = totalText;
+      lastTotalTimeText = totalText;
+    }
+  };
+
   const setStatus = (text: string): void => {
     if (statusLabel) {
       statusLabel.textContent = text;
@@ -322,6 +505,7 @@ const init = async function(): Promise<void> {
     waveformData = null;
     waveformWidth = 0;
     waveformDuration = 0;
+    clearWaveformCache();
     currentBuffer = null;
     pauseOffset = 0;
     playStartTime = 0;
@@ -334,6 +518,7 @@ const init = async function(): Promise<void> {
       micSource = ACTX.createMediaStreamSource(mediaStream);
       micSource.connect(ANALYSER);
       setStatus("Source: microphone");
+      closeControlPanel();
     } catch (error) {
       console.error("Failed to get microphone access:", error);
       setStatus("Microphone unavailable");
@@ -352,6 +537,7 @@ const init = async function(): Promise<void> {
       pauseOffset = 0;
       startBufferPlayback(0);
       setStatus(`File: ${file.name}`);
+      closeControlPanel();
     } catch (error) {
       console.error("Failed to play file:", error);
       setStatus("File playback failed");
@@ -374,6 +560,7 @@ const init = async function(): Promise<void> {
       pauseOffset = 0;
       startBufferPlayback(0);
       setStatus(`File: ${label}`);
+      closeControlPanel();
     } catch (error) {
       console.error("Failed to play file from URL:", error);
       setStatus("Demo playback failed");
@@ -442,8 +629,40 @@ const init = async function(): Promise<void> {
     1,
     100
   );
-  camera.position.set(0, 0, 14);
+  camera.position.set(-0.74, 8.0, 0);
   camera.lookAt(0, 0, 0);
+  const defaultCameraTarget = new THREE.Vector3(0, 0, 0);
+  const formatCameraPosition = (target: THREE.PerspectiveCamera): { x: number; y: number; z: number } => ({
+    x: Number(target.position.x.toFixed(3)),
+    y: Number(target.position.y.toFixed(3)),
+    z: Number(target.position.z.toFixed(3))
+  });
+  const formatCameraRotation = (target: THREE.PerspectiveCamera): { x: number; y: number; z: number } => ({
+    x: Math.round(target.rotation.x * RAD_TO_DEG),
+    y: Math.round(target.rotation.y * RAD_TO_DEG),
+    z: Math.round(target.rotation.z * RAD_TO_DEG)
+  });
+  const createCameraLogger = (label: string, target: THREE.PerspectiveCamera): CameraLogger => {
+    const lastPosition = target.position.clone();
+    const lastRotation = target.rotation.clone();
+    const log = (): void => {
+      lastPosition.copy(target.position);
+      lastRotation.copy(target.rotation);
+      console.log(`${label} position`, formatCameraPosition(target));
+      console.log(`${label} rotation (deg)`, formatCameraRotation(target));
+    };
+    const check = (): void => {
+      const positionChanged = lastPosition.distanceToSquared(target.position) > 1e-6;
+      const rotationChanged = Math.abs(lastRotation.x - target.rotation.x) > 1e-6
+        || Math.abs(lastRotation.y - target.rotation.y) > 1e-6
+        || Math.abs(lastRotation.z - target.rotation.z) > 1e-6;
+      if (positionChanged || rotationChanged) {
+        log();
+      }
+    };
+    return { log, check };
+  };
+  const cameraLogger = createCameraLogger('Camera1', camera);
 
   const scene: THREE.Scene = new THREE.Scene();
 
@@ -500,7 +719,7 @@ const init = async function(): Promise<void> {
     const uvs: number[] = [];
     for (let i = 0; i < xSegments; i++) {
       for (let j = 0; j < ySegments; j++) {
-        uvs.push(j / ySegments, i / xSegments);
+        uvs.push(j / ySegments, (i + 0.5) / xSegments);
       }
     }
     return uvs;
@@ -543,6 +762,9 @@ const init = async function(): Promise<void> {
   geometry.setAttribute('displacement', displacementAttribute);
 
   let mesh: THREE.Mesh;
+  let secondaryView: SpectrogramView | null = null;
+  let secondaryControls: OrbitControls | null = null;
+  let secondaryCameraLogger: CameraLogger | null = null;
 
   // Setup color mapping
   type ColorMapColor = [number, number, number, number];
@@ -561,15 +783,6 @@ const init = async function(): Promise<void> {
   };
 
   let lut: THREE.Vector3[] = updateColormap();
-
-  // Get shaders from DOM
-  const vShader = document.getElementById('vertexshader') as HTMLScriptElement | null;
-  const fShader = document.getElementById('fragmentshader') as HTMLScriptElement | null;
-
-  if (!vShader || !fShader) {
-    console.error("Shader elements not found in DOM");
-    return;
-  }
 
   // Define uniforms
   const backgroundColor = new THREE.Vector3(0x17 / 255, 0x17 / 255, 0x17 / 255);
@@ -592,9 +805,9 @@ const init = async function(): Promise<void> {
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.autoClear = false;
 
-  const container = document.getElementById('Spectrogram');
+  const container = document.getElementById('SpectrogramCamera1');
   if (!container) {
-    console.error("Spectrogram container not found");
+    console.error("SpectrogramCamera1 container not found");
     return;
   }
   container.appendChild(renderer.domElement);
@@ -608,6 +821,7 @@ const init = async function(): Promise<void> {
     camera.updateProjectionMatrix();
 
     renderer.setSize(newWidth, newHeight);
+    secondaryView?.resize();
 
   };
 
@@ -620,13 +834,15 @@ const init = async function(): Promise<void> {
   // controls.minPolarAngle = Math.PI / 2;
   // controls.minAzimuthAngle = 5 * Math.PI / 3;
   // controls.maxAzimuthAngle = -5 * Math.PI / 3;
+  controls.target.copy(defaultCameraTarget);
   controls.update();
+  controls.addEventListener('end', cameraLogger.log);
 
   // Create material and mesh
   const material: THREE.ShaderMaterial = new THREE.ShaderMaterial({
     uniforms: uniforms,
-    vertexShader: vShader.text,
-    fragmentShader: fShader.text
+    vertexShader: vertexShader,
+    fragmentShader: fragmentShader
   });
   material.toneMapped = false;
 
@@ -634,14 +850,40 @@ const init = async function(): Promise<void> {
   const rotateGroup = new THREE.Group();
   const scaleGroup = new THREE.Group();
   const translateGroup = new THREE.Group();
+  const spectrogramRotation = new THREE.Euler(0, 0, 0);
+  const secondaryRotation = new THREE.Euler(0, 0, 0);
+  const spectrogramTranslation = new THREE.Vector3(-heightScale * 0.5 + 1.5, -4.8, 0);
+  const secondaryTranslation = new THREE.Vector3(-heightScale * 0.5 + 1.5, -4.8, 0);
   // Match WebGL transform order: rotate -> scale -> translate
-  rotateGroup.rotation.set((90 * Math.PI) / 180, (90 * Math.PI) / 180, 0);
-  translateGroup.position.set(-heightScale * 0.5, 0, 0);
+  rotateGroup.rotation.copy(spectrogramRotation);
+  translateGroup.position.copy(spectrogramTranslation);
   rotateGroup.add(mesh);
   scaleGroup.add(rotateGroup);
   translateGroup.add(scaleGroup);
   scene.add(translateGroup);
   mesh.geometry.computeVertexNormals();
+
+  const secondaryCameraPosition = new THREE.Vector3(-0.4, 0.0, 15.0);
+
+  secondaryView = createSpectrogramView({
+    containerId: 'SpectrogramCamera2',
+    geometry,
+    material,
+    backgroundColor,
+    heightScale,
+    cameraPosition: secondaryCameraPosition,
+    rotation: secondaryRotation,
+    translation: secondaryTranslation
+  });
+  secondaryView?.resize();
+  if (secondaryView) {
+    secondaryCameraLogger = createCameraLogger('Camera2', secondaryView.camera);
+    secondaryControls = new OrbitControls(secondaryView.camera, secondaryView.renderer.domElement);
+    secondaryControls.update();
+    applyCameraRotation(secondaryView.camera, secondaryControls, new THREE.Vector3(0, 0, 0));
+    secondaryCameraLogger.log();
+    secondaryControls.addEventListener('end', secondaryCameraLogger.log);
+  }
 
   // Функція ease-out cubica
   const easeOutCubic = (t: number): number => {
@@ -717,9 +959,74 @@ const init = async function(): Promise<void> {
       requestAnimationFrame(animateFrame);
     };
 
-    // Запускаємо анімацію
+  // Запускаємо анімацію
+  animateFrame();
+};
+
+  function applyCameraRotation(
+    targetCamera: THREE.PerspectiveCamera,
+    targetControls: OrbitControls | null,
+    targetRotation: THREE.Vector3
+  ): void {
+    const currentTarget = targetControls?.target ?? new THREE.Vector3(0, 0, 0);
+    const radius = targetCamera.position.distanceTo(currentTarget);
+    const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      (targetRotation.x * Math.PI) / 180,
+      (targetRotation.y * Math.PI) / 180,
+      (targetRotation.z * Math.PI) / 180
+    ));
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
+    const target = targetCamera.position.clone().add(forward.multiplyScalar(radius));
+    targetCamera.up.copy(up);
+    targetCamera.lookAt(target);
+    if (targetControls) {
+      targetControls.target.copy(target);
+      targetControls.update();
+    }
+  }
+
+  const animateCameraRotation = (
+    targetCamera: THREE.PerspectiveCamera,
+    targetControls: OrbitControls | null,
+    targetRotation: THREE.Vector3
+  ): void => {
+    const target = targetControls?.target ?? new THREE.Vector3(0, 0, 0);
+    const radius = targetCamera.position.distanceTo(target);
+    const startQuat = targetCamera.quaternion.clone();
+    const endQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      (targetRotation.x * Math.PI) / 180,
+      (targetRotation.y * Math.PI) / 180,
+      (targetRotation.z * Math.PI) / 180
+    ));
+    const duration = 1024;
+    const startTime = Date.now();
+
+    const animateFrame = (): void => {
+      const now = Date.now();
+      const elapsed = now - startTime;
+      const t = Math.min(1, elapsed / duration);
+      const eased = easeOutCubic(t);
+
+      const currentQuat = startQuat.clone().slerp(endQuat, eased);
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuat);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(currentQuat);
+      const position = target.clone().sub(forward.multiplyScalar(radius));
+      targetCamera.position.copy(position);
+      targetCamera.up.copy(up);
+      targetCamera.lookAt(target);
+      targetControls?.update();
+
+      if (elapsed < duration) {
+        requestAnimationFrame(animateFrame);
+      }
+    };
+
     animateFrame();
   };
+
+  applyCameraRotation(camera, controls, new THREE.Vector3(-90, 0, -90));
+  cameraLogger.log();
 
   const updateScale = (mode: ScaleMode): void => {
     const oldMode = scaleMode;
@@ -759,6 +1066,35 @@ const init = async function(): Promise<void> {
   // Set initial active states (Mel is default scale, Gray is default colormap)
   setActiveScaleButton(melButton);
   setActiveColormapButton(grayButton);
+
+  // Active state management for Demo buttons
+  const demoButtons = [demoOnsetButton, demoButton, demoGazMaskButton, demoGazMaskButton2];
+  const setActiveDemoButton = (activeBtn: HTMLButtonElement | null): void => {
+    demoButtons.forEach(btn => {
+      if (btn) {
+        btn.classList.remove('btn-active');
+      }
+    });
+    activeBtn?.classList.add('btn-active');
+  };
+
+  // Active state management for Preset buttons
+  const presetButtons = [
+    preset90_90Button,
+    preset000Button,
+    preset45_45Button,
+    preset0_180Button,
+    preset45_180Button,
+    preset90_180Button
+  ];
+  const setActivePresetButton = (activeBtn: HTMLButtonElement | null): void => {
+    presetButtons.forEach(btn => {
+      if (btn) {
+        btn.classList.remove('btn-active');
+      }
+    });
+    activeBtn?.classList.add('btn-active');
+  };
 
   // Active state management for Source (Microphone) button
   const setMicActive = (active: boolean): void => {
@@ -845,24 +1181,28 @@ const init = async function(): Promise<void> {
     void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/SENCD006-01_Irukanji_-_Onset_(In)_(72)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9TRU5DRDAwNi0wMV9JcnVrYW5qaV8tX09uc2V0XyhJbilfKDcyKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MTk0NSwiZXhwIjoxNzk5NjA3OTQ1fQ.OgyQF8iUUYpAK3vK38H8CVltYGaskn7ecphcoRGPWa0', 'Irukanji - Onset (In)');
     setMicActive(false);
     enablePlayPauseBtn();
+    setActiveDemoButton(demoOnsetButton);
   });
 
   demoButton?.addEventListener('click', () => {
     void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-04_Irukanji_-_Percentage_Of_Yes-ness_(149bpm)-Reel_v2.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTA0X0lydWthbmppXy1fUGVyY2VudGFnZV9PZl9ZZXMtbmVzc18oMTQ5YnBtKS1SZWVsX3YyLm1wMyIsImlhdCI6MTc2ODA3MTkwMCwiZXhwIjoxNzk5NjA3OTAwfQ.lqJwqNqbc--WJMiswXXJYFI2OpaumpNrEw7tgwpNw2o', 'Irukanji - Percentage Of Yes-ness');
     setMicActive(false);
     enablePlayPauseBtn();
+    setActiveDemoButton(demoButton);
   });
 
   demoGazMaskButton?.addEventListener('click', () => {
     void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-01_Gaz%20Mask_-_Sic_Mundus_Creatus_Est_(133bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDFfR2F6IE1hc2tfLV9TaWNfTXVuZHVzX0NyZWF0dXNfRXN0XygxMzNicG0pLVJlZWxfdjEubXAzIiwiaWF0IjoxNzY4MDcyMDIxLCJleHAiOjE3OTk2MDgwMjF9.PCioHd4Xz63dzj_ujm9DczOHrNFmfvms8ML0FlJK3hA', 'Gaz Mask - Sic Mundus Creatus Est');
     setMicActive(false);
     enablePlayPauseBtn();
+    setActiveDemoButton(demoGazMaskButton);
   });
 
   demoGazMaskButton2?.addEventListener('click', () => {
     void playFromUrl('https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/sentimony/SENCD098-04_Gaz_Mask_-_The_Breath_Of_The_Elder_(138bpm)-Reel_v1.mp3?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9zZW50aW1vbnkvU0VOQ0QwOTgtMDRfR2F6X01hc2tfLV9UaGVfQnJlYXRoX09mX1RoZV9FbGRlcl8oMTM4YnBtKS1SZWVsX3YxLm1wMyIsImlhdCI6MTc2ODA3MjA4NywiZXhwIjoxNzk5NjA4MDg3fQ.anbSAf5XrFtKZvM-dpxJIO_KDB31Tl9pyByLmJg29Nk', 'Gaz Mask - The Breath Of The Elder');
     setMicActive(false);
     enablePlayPauseBtn();
+    setActiveDemoButton(demoGazMaskButton2);
   });
 
   stopButton?.addEventListener('click', () => {
@@ -968,7 +1308,32 @@ const init = async function(): Promise<void> {
   angleRotateYNegButton?.addEventListener('click', () => rotateMeshByDegrees('y', -45));
   angleRotateZNegButton?.addEventListener('click', () => rotateMeshByDegrees('z', -45));
 
+  camera1Rotation000Button?.addEventListener('click', () => {
+    console.log('Camera1 Rotation Preset: 0, 0, 0');
+    animateCameraRotation(camera, controls, new THREE.Vector3(0, 0, 0));
+  });
+  camera1RotationNeg90Button?.addEventListener('click', () => {
+    console.log('Camera1 Rotation Preset: -90, 0, -90');
+    animateCameraRotation(camera, controls, new THREE.Vector3(-90, 0, -90));
+  });
+  camera2Rotation000Button?.addEventListener('click', () => {
+    if (!secondaryView) return;
+    console.log('Camera2 Rotation Preset: 0, 0, 0');
+    animateCameraRotation(secondaryView.camera, secondaryControls, new THREE.Vector3(0, 0, 0));
+  });
+  camera2RotationNeg90Button?.addEventListener('click', () => {
+    if (!secondaryView) return;
+    console.log('Camera2 Rotation Preset: -90, 0, -90');
+    animateCameraRotation(secondaryView.camera, secondaryControls, new THREE.Vector3(-90, 0, -90));
+  });
+
   // Функція для дзеркального відображення (flip)
+  const updateFlipButtonsActive = (): void => {
+    flipXButton?.classList.toggle('btn-active', scaleGroup.scale.x < 0);
+    flipYButton?.classList.toggle('btn-active', scaleGroup.scale.y < 0);
+    flipZButton?.classList.toggle('btn-active', scaleGroup.scale.z < 0);
+  };
+
   const flipMesh = (axis: 'x' | 'y' | 'z'): void => {
     const currentRot = getRotationInDegrees();
     console.log(`Flipping ${axis.toUpperCase()}: before`, currentRot);
@@ -983,14 +1348,37 @@ const init = async function(): Promise<void> {
 
     const afterRot = getRotationInDegrees();
     console.log(`Flipping ${axis.toUpperCase()}: after`, afterRot);
+    updateFlipButtonsActive();
   };
 
   // Preset buttons
-  preset000Button?.addEventListener('click', () => setRotationToPreset(0, 0, 0));
-  preset90_90Button?.addEventListener('click', () => setRotationToPreset(90, 90, 0));
-  preset45_45Button?.addEventListener('click', () => setRotationToPreset(45, 45, 0));
-  preset45_180Button?.addEventListener('click', () => setRotationToPreset(45, 180, 0));
-  preset90_180Button?.addEventListener('click', () => setRotationToPreset(90, 180, 0));
+  preset000Button?.addEventListener('click', () => {
+    setRotationToPreset(0, 0, 0);
+    setActivePresetButton(preset000Button);
+  });
+  preset90_90Button?.addEventListener('click', () => {
+    setRotationToPreset(90, 90, 0);
+    setActivePresetButton(preset90_90Button);
+  });
+  preset45_45Button?.addEventListener('click', () => {
+    setRotationToPreset(45, 45, 0);
+    setActivePresetButton(preset45_45Button);
+  });
+  preset0_180Button?.addEventListener('click', () => {
+    setRotationToPreset(0, 180, 0);
+    setActivePresetButton(preset0_180Button);
+  });
+  preset45_180Button?.addEventListener('click', () => {
+    setRotationToPreset(45, 180, 0);
+    setActivePresetButton(preset45_180Button);
+  });
+  preset90_180Button?.addEventListener('click', () => {
+    setRotationToPreset(90, 180, 0);
+    setActivePresetButton(preset90_180Button);
+  });
+
+  setActivePresetButton(preset000Button);
+  updateFlipButtonsActive();
 
   // Flip buttons
   flipXButton?.addEventListener('click', () => flipMesh('x'));
@@ -999,12 +1387,7 @@ const init = async function(): Promise<void> {
 
   // Control panel toggle
   closePanelButton?.addEventListener('click', () => {
-    if (controlPanel) {
-      controlPanel.style.display = 'none';
-    }
-    if (menuButton) {
-      menuButton.style.display = 'block';
-    }
+    closeControlPanel();
   });
 
   menuButton?.addEventListener('click', () => {
@@ -1024,10 +1407,7 @@ const init = async function(): Promise<void> {
     const isPanelVisible = controlPanel && (controlPanel.style.display === 'block' || controlPanel.style.display === '');
 
     if (!isClickInsidePanel && !isClickOnMenuButton && isPanelVisible) {
-      controlPanel.style.display = 'none';
-      if (menuButton) {
-        menuButton.style.display = 'block';
-      }
+      closeControlPanel();
     }
   });
 
@@ -1059,16 +1439,16 @@ const init = async function(): Promise<void> {
 
   // Create axes helper with labels
   let cameraAxesGroup: THREE.Group | null = null;
-  let spectrogramAxesGroup: THREE.Group | null = null;
+  let cameraAxesGroup2: THREE.Group | null = null;
 
-  const createTextLabel = (text: string, color: number): THREE.Sprite => {
+  const createTextLabel = (text: string, color: number, fontSize: number): THREE.Sprite => {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 256;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 120px Arial';
+      ctx.font = `bold ${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, 128, 128);
@@ -1081,7 +1461,11 @@ const init = async function(): Promise<void> {
     return sprite;
   };
 
-  const createAxesWithLabels = (axisLength: number = 30): THREE.Group => {
+  const createAxesWithLabels = (
+    axisLength: number = 30,
+    labelFontSize: number = 32,
+    labelOffset: number = 4
+  ): THREE.Group => {
     const group = new THREE.Group();
 
     // X axis (red)
@@ -1106,29 +1490,85 @@ const init = async function(): Promise<void> {
     group.add(zLine);
 
     // X label (red)
-    const xLabel = createTextLabel('X', 0xff0000);
-    xLabel.position.set(axisLength + 4, 0, 0);
+    const xLabel = createTextLabel('X', 0xff0000, labelFontSize);
+    xLabel.position.set(axisLength + labelOffset, 0, 0);
     group.add(xLabel);
 
     // Y label (green)
-    const yLabel = createTextLabel('Y', 0x00ff00);
-    yLabel.position.set(0, axisLength + 4, 0);
+    const yLabel = createTextLabel('Y', 0x00ff00, labelFontSize);
+    yLabel.position.set(0, axisLength + labelOffset, 0);
     group.add(yLabel);
 
     // Z label (blue)
-    const zLabel = createTextLabel('Z', 0x0000ff);
-    zLabel.position.set(0, 0, axisLength + 4);
+    const zLabel = createTextLabel('Z', 0x0000ff, labelFontSize);
+    zLabel.position.set(0, 0, axisLength + labelOffset);
     group.add(zLabel);
 
     return group;
   };
 
+  const axesLength = 8;
+  const axesFontSize = 32;
+  const axesLabelOffset = 1;
+  type GridAxis = 'x' | 'y' | 'z';
+  const gridSize = 22;
+  const gridStep = 2;
+  const gridDivisions = Math.round(gridSize / gridStep);
+  const gridHelpers: Record<GridAxis, { main: THREE.GridHelper | null; secondary: THREE.GridHelper | null }> = {
+    x: { main: null, secondary: null },
+    y: { main: null, secondary: null },
+    z: { main: null, secondary: null }
+  };
+
+  const createGridHelper = (axis: GridAxis): THREE.GridHelper => {
+    const grid = new THREE.GridHelper(gridSize, gridDivisions, 0x3a3a3a, 0x262626);
+    if (axis === 'x') {
+      grid.rotation.z = Math.PI / 2;
+    } else if (axis === 'z') {
+      grid.rotation.x = Math.PI / 2;
+    }
+    return grid;
+  };
+
+  const setGridButtonActive = (axis: GridAxis, active: boolean): void => {
+    const button = axis === 'x' ? gridXButton : axis === 'y' ? gridYButton : gridZButton;
+    button?.classList.toggle('btn-active', active);
+  };
+
+  const setGridVisibility = (axis: GridAxis, visible: boolean): void => {
+    const grids = gridHelpers[axis];
+    if (visible) {
+      if (!grids.main) {
+        grids.main = createGridHelper(axis);
+        scene.add(grids.main);
+      }
+      if (secondaryView && !grids.secondary) {
+        grids.secondary = createGridHelper(axis);
+        secondaryView.scene.add(grids.secondary);
+      }
+    } else {
+      if (grids.main) {
+        scene.remove(grids.main);
+        grids.main = null;
+      }
+      if (secondaryView && grids.secondary) {
+        secondaryView.scene.remove(grids.secondary);
+        grids.secondary = null;
+      }
+    }
+    setGridButtonActive(axis, visible);
+  };
+
   const setCameraAxesVisibility = (visible: boolean): void => {
     if (visible && !cameraAxesGroup) {
-      cameraAxesGroup = createAxesWithLabels(32);
+      cameraAxesGroup = createAxesWithLabels(axesLength, axesFontSize, axesLabelOffset);
       scene.add(cameraAxesGroup);
       if (cameraAxesToggle) {
         cameraAxesToggle.classList.add('btn-active');
+      }
+      if (secondaryView && !cameraAxesGroup2) {
+        cameraAxesGroup2 = createAxesWithLabels(axesLength, axesFontSize, axesLabelOffset);
+        secondaryView.scene.add(cameraAxesGroup2);
       }
     } else if (!visible && cameraAxesGroup) {
       scene.remove(cameraAxesGroup);
@@ -1136,22 +1576,9 @@ const init = async function(): Promise<void> {
       if (cameraAxesToggle) {
         cameraAxesToggle.classList.remove('btn-active');
       }
-    }
-  };
-
-  const setSpectrogramAxesVisibility = (visible: boolean): void => {
-    if (visible && !spectrogramAxesGroup) {
-      spectrogramAxesGroup = createAxesWithLabels(32);
-      spectrogramAxesGroup.position.set(0, 0, 0);
-      mesh.add(spectrogramAxesGroup);
-      if (spectrogramAxesToggle) {
-        spectrogramAxesToggle.classList.add('btn-active');
-      }
-    } else if (!visible && spectrogramAxesGroup) {
-      mesh.remove(spectrogramAxesGroup);
-      spectrogramAxesGroup = null;
-      if (spectrogramAxesToggle) {
-        spectrogramAxesToggle.classList.remove('btn-active');
+      if (secondaryView && cameraAxesGroup2) {
+        secondaryView.scene.remove(cameraAxesGroup2);
+        cameraAxesGroup2 = null;
       }
     }
   };
@@ -1161,9 +1588,14 @@ const init = async function(): Promise<void> {
     setCameraAxesVisibility(cameraAxesGroup === null);
   });
 
-  // Spectrogram axes toggle
-  spectrogramAxesToggle?.addEventListener('click', () => {
-    setSpectrogramAxesVisibility(spectrogramAxesGroup === null);
+  gridXButton?.addEventListener('click', () => {
+    setGridVisibility('x', gridHelpers.x.main === null);
+  });
+  gridYButton?.addEventListener('click', () => {
+    setGridVisibility('y', gridHelpers.y.main === null);
+  });
+  gridZButton?.addEventListener('click', () => {
+    setGridVisibility('z', gridHelpers.z.main === null);
   });
 
 
@@ -1171,6 +1603,7 @@ const init = async function(): Promise<void> {
   const animate = function (): void {
     requestAnimationFrame(animate);
     controls.update();
+    secondaryControls?.update();
     render();
   };
 
@@ -1182,6 +1615,7 @@ const init = async function(): Promise<void> {
     }
     renderer.clear();
     renderer.render(scene, camera);
+    secondaryView?.render();
   };
 
   // Setup waveform canvas
@@ -1193,6 +1627,7 @@ const init = async function(): Promise<void> {
       const rect = waveformCanvas.getBoundingClientRect();
       waveformCanvas.width = rect.width;
       waveformCanvas.height = rect.height;
+      invalidateWaveformCache();
     }
   };
 
@@ -1224,69 +1659,168 @@ const init = async function(): Promise<void> {
     background: hexToRgb('#171717')
   };
 
+  const waveformBackgroundStyle = `rgb(${waveformPalette.background.r}, ${waveformPalette.background.g}, ${waveformPalette.background.b})`;
+
+  const buildWaveformCache = (width: number, height: number): void => {
+    if (!waveformData || waveformWidth <= 0 || width <= 0 || height <= 0) {
+      clearWaveformCache();
+      return;
+    }
+
+    const baseCanvas = document.createElement('canvas');
+    const progressCanvas = document.createElement('canvas');
+    const playheadCanvas = document.createElement('canvas');
+    baseCanvas.width = width;
+    baseCanvas.height = height;
+    progressCanvas.width = width;
+    progressCanvas.height = height;
+    playheadCanvas.width = width;
+    playheadCanvas.height = height;
+
+    const baseCtx = baseCanvas.getContext('2d');
+    const progressCtx = progressCanvas.getContext('2d');
+    const playheadCtx = playheadCanvas.getContext('2d');
+    if (!baseCtx || !progressCtx || !playheadCtx) {
+      clearWaveformCache();
+      return;
+    }
+
+    const baseImage = baseCtx.createImageData(width, height);
+    const progressImage = progressCtx.createImageData(width, height);
+    const playheadImage = playheadCtx.createImageData(width, height);
+    const baseData = baseImage.data;
+    const progressData = progressImage.data;
+    const playheadData = playheadImage.data;
+
+    const baseAlpha = Math.round(255 * 0.7);
+    const progressAlpha = Math.round(255 * 0.9);
+    const playheadAlpha = 255;
+
+    for (let pixelX = 0; pixelX < width; pixelX++) {
+      const normX = pixelX / width;
+      const dataPos = normX * (waveformWidth - 1);
+      const dataIndex = Math.floor(dataPos);
+      const dataIndexNext = Math.min(dataIndex + 1, waveformWidth - 1);
+      const fracPart = dataPos - dataIndex;
+
+      const minAmp1 = waveformData[dataIndex * 2];
+      const maxAmp1 = waveformData[dataIndex * 2 + 1];
+      const minAmp2 = waveformData[dataIndexNext * 2];
+      const maxAmp2 = waveformData[dataIndexNext * 2 + 1];
+
+      const minAmp = minAmp1 + (minAmp2 - minAmp1) * fracPart;
+      const maxAmp = maxAmp1 + (maxAmp2 - maxAmp1) * fracPart;
+
+      for (let pixelY = 0; pixelY < height; pixelY++) {
+        const normY = (pixelY / height) * 2.0 - 1.0;
+        if (normY < minAmp || normY > maxAmp) {
+          continue;
+        }
+
+        const pixelIndex = (pixelY * width + pixelX) * 4;
+        baseData[pixelIndex] = waveformPalette.wave.r;
+        baseData[pixelIndex + 1] = waveformPalette.wave.g;
+        baseData[pixelIndex + 2] = waveformPalette.wave.b;
+        baseData[pixelIndex + 3] = baseAlpha;
+
+        progressData[pixelIndex] = waveformPalette.progress.r;
+        progressData[pixelIndex + 1] = waveformPalette.progress.g;
+        progressData[pixelIndex + 2] = waveformPalette.progress.b;
+        progressData[pixelIndex + 3] = progressAlpha;
+
+        playheadData[pixelIndex] = waveformPalette.playhead.r;
+        playheadData[pixelIndex + 1] = waveformPalette.playhead.g;
+        playheadData[pixelIndex + 2] = waveformPalette.playhead.b;
+        playheadData[pixelIndex + 3] = playheadAlpha;
+      }
+    }
+
+    baseCtx.putImageData(baseImage, 0, 0);
+    progressCtx.putImageData(progressImage, 0, 0);
+    playheadCtx.putImageData(playheadImage, 0, 0);
+
+    waveformCache = {
+      base: baseCanvas,
+      progress: progressCanvas,
+      playhead: playheadCanvas,
+      width,
+      height
+    };
+    waveformCacheDirty = false;
+  };
+
   const updateWaveformRendering = (): void => {
+    updateTrackTimeDisplay();
     if (!waveformCanvas || !waveformCtx) return;
 
     const width = waveformCanvas.width;
     const height = waveformCanvas.height;
 
     if (waveformData && waveformWidth > 0) {
-      const playheadPos = getPlayheadPosition();
-      const playheadWidth = 0.001;
-      const imageData = waveformCtx.createImageData(width, height);
-      const data = imageData.data;
-
-      for (let i = 0; i < data.length; i += 4) {
-        data[i] = waveformPalette.background.r;
-        data[i + 1] = waveformPalette.background.g;
-        data[i + 2] = waveformPalette.background.b;
-        data[i + 3] = 255;
+      if (
+        waveformCacheDirty ||
+        !waveformCache ||
+        waveformCache.width !== width ||
+        waveformCache.height !== height
+      ) {
+        buildWaveformCache(width, height);
       }
 
-      for (let pixelX = 0; pixelX < width; pixelX++) {
-        const normX = pixelX / width;
-        const dataPos = normX * (waveformWidth - 1);
-        const dataIndex = Math.floor(dataPos);
-        const dataIndexNext = Math.min(dataIndex + 1, waveformWidth - 1);
-        const fracPart = dataPos - dataIndex;
+      if (waveformCache) {
+        const playheadPos = getPlayheadPosition();
+        const playedWidth = Math.min(width, Math.floor(width * playheadPos) + 1);
+        const unplayedWidth = width - playedWidth;
 
-        const minAmp1 = waveformData[dataIndex * 2];
-        const maxAmp1 = waveformData[dataIndex * 2 + 1];
-        const minAmp2 = waveformData[dataIndexNext * 2];
-        const maxAmp2 = waveformData[dataIndexNext * 2 + 1];
+        waveformCtx.fillStyle = waveformBackgroundStyle;
+        waveformCtx.fillRect(0, 0, width, height);
 
-        const minAmp = minAmp1 + (minAmp2 - minAmp1) * fracPart;
-        const maxAmp = maxAmp1 + (maxAmp2 - maxAmp1) * fracPart;
-
-        for (let pixelY = 0; pixelY < height; pixelY++) {
-          const normY = (pixelY / height) * 2.0 - 1.0;
-          const inWaveform = normY >= minAmp && normY <= maxAmp;
-          if (!inWaveform) {
-            continue;
-          }
-
-          const isPlayhead = Math.abs(normX - playheadPos) <= playheadWidth;
-          const isPlayed = normX <= playheadPos;
-          const color = isPlayhead
-            ? waveformPalette.playhead
-            : isPlayed
-              ? waveformPalette.progress
-              : waveformPalette.wave;
-          const alpha = isPlayhead ? 1.0 : isPlayed ? 0.9 : 0.7;
-
-          const pixelIndex = (pixelY * width + pixelX) * 4;
-          data[pixelIndex] = color.r;
-          data[pixelIndex + 1] = color.g;
-          data[pixelIndex + 2] = color.b;
-          data[pixelIndex + 3] = Math.round(255 * alpha);
+        if (unplayedWidth > 0) {
+          waveformCtx.drawImage(
+            waveformCache.base,
+            playedWidth,
+            0,
+            unplayedWidth,
+            height,
+            playedWidth,
+            0,
+            unplayedWidth,
+            height
+          );
         }
-      }
 
-      waveformCtx.putImageData(imageData, 0, 0);
-      return;
+        if (playedWidth > 0) {
+          waveformCtx.drawImage(
+            waveformCache.progress,
+            0,
+            0,
+            playedWidth,
+            height,
+            0,
+            0,
+            playedWidth,
+            height
+          );
+        }
+
+        const playheadWidth = Math.max(1, Math.ceil(width * 0.002));
+        const playheadCenter = Math.round(width * playheadPos);
+        const playheadX = Math.max(0, Math.min(width - playheadWidth, playheadCenter - Math.floor(playheadWidth / 2)));
+        waveformCtx.drawImage(
+          waveformCache.playhead,
+          playheadX,
+          0,
+          playheadWidth,
+          height,
+          playheadX,
+          0,
+          playheadWidth,
+          height
+        );
+        return;
+      }
     }
 
-    waveformCtx.fillStyle = '#171717';
+    waveformCtx.fillStyle = waveformBackgroundStyle;
     waveformCtx.fillRect(0, 0, width, height);
 
     const waveformBuffer = new Uint8Array(ANALYSER.frequencyBinCount);

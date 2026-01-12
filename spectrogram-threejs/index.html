@@ -10,164 +10,271 @@
   <link rel="stylesheet" href="/src/style.css">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 </head>
-<body class="m-0 p-0 overflow-hidden bg-neutral-700">
-  <div id="video">
-    <!-- Main layout container: 85% for spectrogram+artwork, 15% for waveform -->
-    <div class="flex w-full flex-1 gap-1.5">
-      <!-- Left panel: Album cover and track info (30%) -->
-      <div id="artwork" class="w-[30%] bg-neutral-900 flex flex-col items-center justify-center gap-1.5 rounded-lg">
-        <div class="px-1.5 mb-4">
-          <img id="artwork-img" src="https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-3000-100perc.jpg?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTMwMDAtMTAwcGVyYy5qcGciLCJpYXQiOjE3NjgwNzIzNTEsImV4cCI6MTc5OTYwODM1MX0.xd2gux-vRy5hPOzNigFwscmr6pxzaWWg5TWHmhHPgXQ" alt="Album cover" class="w-full h-auto rounded-lg shadow-lg">
+<body class="font-quicksand font-bold m-0 p-0 overflow-hidden bg-neutral-700">
+
+  <div id="video" class="w-[min(100vw,calc(100vh*16/9))] h-[min(100vh,calc(100vw*9/16))] fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1.5 bg-neutral-800 border-10 border-neutral-700 p-1.5 z-0 box-border">
+
+    <div id="Tracklist" class="absolute top-0 left-0 w-1/2 p-1.5 pr-0.75 flex gap-1.5">
+      <div class="w-full p-1.5 flex flex-col justify-start items-center gap-1.5">
+
+        <div class="">
+          <img
+            id="artwork-img"
+            class="w-full max-w-48 h-auto m-auto rounded-lg shadow-lg mb-1.5"
+            src="https://dugbgewuzowoogglccue.supabase.co/storage/v1/object/sign/spectrogram/irukanji/MKRL019-3000-100perc.jpg?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MjI0ZmMwZi0xZDI3LTQ0ZDItOWI3YS1lZTU2M2NjOGU4ZTAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJzcGVjdHJvZ3JhbS9pcnVrYW5qaS9NS1JMMDE5LTMwMDAtMTAwcGVyYy5qcGciLCJpYXQiOjE3NjgwNzIzNTEsImV4cCI6MTc5OTYwODM1MX0.xd2gux-vRy5hPOzNigFwscmr6pxzaWWg5TWHmhHPgXQ"
+            alt="Album cover"
+          >
         </div>
-        <div class="text-center text-white">
-          <h2 class="text-lg text-gray-400">Percentage Of Yes-ness</h2>
-          <p class="text-lg text-gray-200 mb-4">Irukanji</p>
-          <p class="text-sm text-gray-600">Irukanji • Springwald</p>
-          <p class="text-xs text-gray-600">© 2024 Moon Koradji Records</p>
+
+        <h2 class="text-base text-neutral-300 mb-1.5 text-center">
+          <span>Irukanji</span>
+          <span class="m-2">&#8226;</span>
+          <span>Springwald</span>
+        </h2>
+
+        <div class="mb-1.5">
+          <p class="text-sm text-neutral-500 flex justify-start gap-1.5 w-full">
+            <span>
+              <span class="inline-block text-right w-5 mr-1">1.</span>
+              <span>Irukanji</span>
+              <span class="m-1">&#8226;</span>
+              <span class="inline-block w-44">Set And Setting Talks</span>
+            </span>
+            <span>
+              <span >150 BPM</span>
+              <span class="inline-block text-right w-11">08:27</span>
+            </span>
+          </p>
+          <p class="text-sm text-neutral-500 flex justify-start gap-1.5 w-full">
+            <span>
+              <span class="inline-block text-right w-5 mr-1">2.</span>
+              <span>Irukanji</span>
+              <span class="m-1">&#8226;</span>
+              <span class="inline-block w-44">Oh, You Mean This Track</span>
+            </span>
+            <span>
+              <span>150 BPM</span>
+              <span class="inline-block text-right w-11">07:58</span>
+            </span>
+          </p>
+          <p class="text-sm text-neutral-500 flex justify-start gap-1.5 w-full">
+            <span>
+              <span class="inline-block text-right w-5 mr-1">3.</span>
+              <span>Irukanji</span>
+              <span class="m-1">&#8226;</span>
+              <span class="inline-block w-44">Let Eat Bee</span>
+            </span>
+            <span>
+              <span>150 BPM</span>
+              <span class="inline-block text-right w-11">07:23</span>
+            </span>
+          </p>
+          <p class="text-sm text-neutral-300 flex justify-start gap-1.5 w-full">
+            <span>
+              <span class="inline-block text-right w-5 mr-1">4.</span>
+              <span>Irukanji</span>
+              <span class="m-1">&#8226;</span>
+              <span class="inline-block w-44">Percentage Of Yes-ness</span>
+            </span>
+            <span>
+              <span>149 BPM</span>
+              <span class="inline-block text-right w-11">07:21</span>
+            </span>
+          </p>
         </div>
+
+        <!-- <table class="table-auto w-96 text-sm text-neutral-500 mb-1.5">
+          <tbody>
+            <tr>
+              <td><span class="inline-block text-right w-5 mr-2">1.</span></td>
+              <td>Irukanji</td>
+              <td><span class="ml-1.5 mr-2">&#8226;</span></td>
+              <td>Set And Setting Talks</td>
+              <td >150 BPM</td>
+              <td><span class="ml-2 text-right">08:27</span></td>
+            </tr>
+            <tr>
+              <td><span class="inline-block text-right w-5 mr-2">2.</span></td>
+              <td>Irukanji</td>
+              <td><span class="ml-1.5 mr-2">&#8226;</span></td>
+              <td>Oh, You Mean This Track</td>
+              <td>150 BPM</td>
+            <td><span class="ml-2 text-right">07:58</span></td>
+            </tr>
+            <tr>
+              <td><span class="inline-block text-right w-5 mr-2">3.</span></td>
+              <td>Irukanji</td>
+              <td><span class="ml-1.5 mr-2">&#8226;</span></td>
+              <td>Let Eat Bee</td>
+              <td>150 BPM</td>
+              <td><span class="ml-2 text-right">07:23</span></td>
+            </tr>
+            <tr>
+              <td><span class="inline-block text-right w-5 mr-2">4.</span></td>
+              <td>Irukanji</td>
+              <td><span class="ml-1.5 mr-2">&#8226;</span></td>
+              <td>Percentage Of Yes-ness</td>
+              <td>149 BPM</td>
+              <td><span class="ml-2 text-right">07:21</span></td>
+            </tr>
+          </tbody>
+        </table> -->
+
+        <p class="text-center text-xs text-neutral-600">
+          <span>&#169;</span>
+          <span>2024</span>
+          <span>Moon Koradji Records</span>
+        </p>
+
       </div>
 
-      <!-- Right panel: Spectrogram canvas (70%) -->
-      <div id="Spectrogram" class="w-[70%] h-full rounded-lg overflow-hidden"></div>
+      <!-- <div class="w-1/2"></div> -->
+
     </div>
 
-    <!-- Waveform canvas (15% height) -->
-    <canvas id="waveform" class="w-full h-[15%] z-20 rounded-lg"></canvas>
+
+    <div class="flex w-full flex-1 gap-1.5">
+      <div id="SpectrogramCamera2" class="w-[50%] h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="SpectrogramCamera1" class="w-[50%] h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+    </div>
+
+    <div id="ActiveTrack" class="w-full h-[20%] z-20 bg-neutral-900 rounded-lg p-1.5">
+      <div class="flex justify-between text-neutral-300 text-lg">
+        <div>
+          <span id="TrackTimeCurrent" class="inline-block w-20 text-left">0:00</span>
+        </div>
+        <h1 class="text-center">
+          <span>Irukanji</span>
+          <span class="m-2">&#8226;</span>
+          <span>Percentage Of Yes-ness</span>
+        </h2>
+        <div>
+          <span id="TrackTimeTotal" class="inline-block w-20 text-right">0:00</span>
+        </div>
+      </div>
+      <canvas id="waveform" class="w-full h-[calc(100%-28px)] z-20 rounded-lg"></canvas>
+    </div>
+
   </div>
+
   <main>
     <div class="absolute top-4 right-4">
-      <button id="menu-button" class="p-2 text-white bg-black/55 backdrop-blur border border-white/10 rounded-lg hover:text-gray-300 transition text-base leading-none cursor-pointer hidden">
+
+      <button id="menu-button" class="cursor-pointer p-2 text-white bg-black/55 backdrop-blur border border-white/10 rounded-lg hover:text-gray-300 transition text-base leading-none hidden">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
       </button>
+
       <div id="controlPanel" class="relative p-2 text-white leading-none bg-black/55 backdrop-blur border border-white/10 rounded-lg w-full max-w-64 text-xs">
-        <button id="close-panel" class="absolute top-2 right-2 text-white hover:text-gray-300 transition text-base leading-none bg-none border-none cursor-pointer p-0 w-4 h-4">
+
+        <button id="close-panel" class="cursor-pointer absolute top-2 right-2 text-white hover:text-gray-300 transition text-base leading-none bg-none p-0 size-4">
           ✕
         </button>
 
-        <!-- <div class=""> -->
-          <div class="mb-1.5 text-xs text-neutral-400">
-            <span id="source-status">Select a source</span>
-          </div>
+        <div class="mb-1.5 pr-1.5 w-[calc(100%-1rem)] text-xs text-neutral-400">
+          <span id="source-status">Select a source</span>
+        </div>
 
-          <div id="audio-dropzone" class="mb-2 p-2 border-2 border-dashed border-gray-500 rounded-lg text-center hover:border-gray-300 hover:bg-white/5 transition cursor-pointer">
-            <div class="text-xs text-gray-400">Drag & drop audio here</div>
-            <input id="dropzone-input" type="file" accept="audio/*" class="hidden">
-          </div>
+        <div id="audio-dropzone" class="mb-2 p-2 border-2 border-dashed border-gray-500 rounded-lg text-center hover:border-gray-300 hover:bg-white/5 transition cursor-pointer">
+          <div class="text-xs text-gray-400">Drag & drop audio here</div>
+          <input id="dropzone-input" type="file" accept="audio/*" class="hidden">
+        </div>
 
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="mic-button" class="btn-base">Mic</button>
-            <button id="play-pause-btn" class="btn-base disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-600 disabled:hover:text-gray-300" disabled>Play</button>
-            <button id="stop-button" class="btn-base">Full Stop</button>
-          </div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="mic-button" class="btn-base">Mic</button>
+          <button id="play-pause-btn" class="btn-base disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-600 disabled:hover:text-gray-300" disabled>Play</button>
+          <button id="stop-button" class="btn-base">Full Stop</button>
+        </div>
 
-          <!-- <div class="mb-1.5 text-xs text-neutral-400">Irukanji:</div> -->
-          <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
-            <span>Irukanji</span>
-            <button id="demo-onset-button" class="btn-base">001</button>
-            <button id="demo-button" class="btn-base">047</button>
-          </div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>Irukanji</span>
+          <button id="demo-onset-button" class="btn-base">001</button>
+          <button id="demo-button" class="btn-base">047</button>
+        </div>
 
-          <!-- <div class="mb-1.5 text-xs text-neutral-400">Gaz Mask:</div> -->
-          <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
-            <span>Gaz Mask</span>
-            <button id="demo-gazmask-button" class="btn-base">01</button>
-            <button id="demo-gazmask-button-2" class="btn-base">04</button>
-          </div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>Gaz Mask</span>
+          <button id="demo-gazmask-button" class="btn-base">01</button>
+          <button id="demo-gazmask-button-2" class="btn-base">04</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Scale:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="scale-linear" class="btn-base">Linear</button>
-            <button id="scale-log" class="btn-base">Log</button>
-            <button id="scale-mel" class="btn-base">Mel</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Scale:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="scale-linear" class="btn-base">Linear</button>
+          <button id="scale-log" class="btn-base">Log</button>
+          <button id="scale-mel" class="btn-base">Mel</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Colormap:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="colormap-gray" class="btn-base">Gray</button>
-            <button id="colormap-inferno" class="btn-base">Inferno</button>
-            <button id="colormap-rainbow" class="btn-base">Rainbow</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Colormap:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="colormap-gray" class="btn-base">Gray</button>
+          <button id="colormap-inferno" class="btn-base">Inferno</button>
+          <button id="colormap-rainbow" class="btn-base">Rainbow</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Artwork:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="artwork-toggle" class="btn-base">
-              <svg id="eye-open" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-              <svg id="eye-closed" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-            </button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Show:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>Tracklist</span>
+          <button id="artwork-toggle" class="btn-base">
+            <svg id="eye-open" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <svg id="eye-closed" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+          </button>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>Axes</span>
+          <button id="camera-axes-toggle" class="btn-base">Hidden/Show</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Axes:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="camera-axes-toggle" class="btn-base">Show Camera Axes</button>
-            <button id="spectrogram-axes-toggle" class="btn-base">Show Spectrogram Axes</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Grid:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="grid-x" class="btn-base">X</button>
+          <button id="grid-y" class="btn-base">Y</button>
+          <button id="grid-z" class="btn-base">Z</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Angle:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <span>X</span>
-            <button id="angle-rotate-x-neg" class="btn-base">-45°</button>
-            <button id="angle-rotate-x" class="btn-base">+45°</button>
-            <span>Y</span>
-            <button id="angle-rotate-y-neg" class="btn-base">-45°</button>
-            <button id="angle-rotate-y" class="btn-base">+45°</button>
-            <span>Z</span>
-            <button id="angle-rotate-z-neg" class="btn-base">-45°</button>
-            <button id="angle-rotate-z" class="btn-base">+45°</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Angle:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>X</span>
+          <button id="angle-rotate-x-neg" class="btn-base">-45°</button>
+          <button id="angle-rotate-x" class="btn-base">+45°</button>
+          <span>Y</span>
+          <button id="angle-rotate-y-neg" class="btn-base">-45°</button>
+          <button id="angle-rotate-y" class="btn-base">+45°</button>
+          <span>Z</span>
+          <button id="angle-rotate-z-neg" class="btn-base">-45°</button>
+          <button id="angle-rotate-z" class="btn-base">+45°</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Presets:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="preset-90-90-0" class="btn-base">90, 90, 0</button>
-            <button id="preset-0-0-0" class="btn-base">0, 0, 0</button>
-            <button id="preset-45-45-0" class="btn-base">45, 45, 0</button>
-            <button id="preset-45-180-0" class="btn-base">45, 180, 0</button>
-            <button id="preset-90-180-0" class="btn-base">90, 180, 0</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Presets:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="preset-90-90-0" class="btn-base">90, 90, 0</button>
+          <button id="preset-0-0-0" class="btn-base">0, 0, 0</button>
+          <button id="preset-45-45-0" class="btn-base">45, 45, 0</button>
+          <button id="preset-0-180-0" class="btn-base">0, 180, 0</button>
+          <button id="preset-45-180-0" class="btn-base">45, 180, 0</button>
+          <button id="preset-90-180-0" class="btn-base">90, 180, 0</button>
+        </div>
 
-          <div class="mb-1.5 text-xs text-neutral-400">Flip:</div>
-          <div class="flex flex-wrap gap-1.5 mb-1.5">
-            <button id="flip-x" class="btn-base">Flip X</button>
-            <button id="flip-y" class="btn-base">Flip Y</button>
-            <button id="flip-z" class="btn-base">Flip Z</button>
-          </div>
+        <div class="mb-1.5 text-xs text-neutral-400">Camera1 Rotation Presets:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="camera1-rot-0-0-0" class="btn-base">0, 0, 0</button>
+          <button id="camera1-rot-neg90-0-neg90" class="btn-base">-90, 0, -90</button>
+        </div>
 
-        <!-- </div> -->
+        <div class="mb-1.5 text-xs text-neutral-400">Camera2 Rotation Presets:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="camera2-rot-0-0-0" class="btn-base">0, 0, 0</button>
+          <button id="camera2-rot-neg90-0-neg90" class="btn-base">-90, 0, -90</button>
+        </div>
+
+        <div class="mb-1.5 text-xs text-neutral-400">Flip:</div>
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <button id="flip-x" class="btn-base">Flip X</button>
+          <button id="flip-y" class="btn-base">Flip Y</button>
+          <button id="flip-z" class="btn-base">Flip Z</button>
+        </div>
+
       </div>
     </div>
     <script type="module" src="./src/main.ts"></script>
-    <script type="x-shader/x-vertex" id="vertexshader">
-      attribute float displacement;
-      uniform vec3 vLut[256];
-      uniform float uHeightScale;
-      varying vec3 vColor;
-      varying float vAmplitude;
-      varying vec2 vUv;
-      void main(){
-        float amplitude = clamp(displacement / 255.0, 0.0, 1.0);
-        float idx = amplitude * 255.0;
-        int index0 = int(floor(idx));
-        int index1 = min(index0 + 1, 255);
-        float mixT = idx - float(index0);
-        vColor = mix(vLut[index0], vLut[index1], mixT);
-        vAmplitude = amplitude;
-        vUv = uv;
-        vec3 newPosition = vec3(position.x, position.y + (amplitude * uHeightScale), position.z);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition,1.0);
-      }
-    </script>
-
-    <script type="x-shader/x-fragment" id="fragmentshader">
-      varying vec3 vColor;
-      varying float vAmplitude;
-      varying vec2 vUv;
-      uniform vec3 uBackground;
-      void main(){
-        float fade = pow(cos((1.0 - vUv.y) * 0.5 * 3.1415926535), 0.9);
-        float k = vAmplitude * fade;
-        vec3 color = uBackground + (k * vColor);
-        gl_FragColor = vec4(color,1.0);
-      }
-    </script>
   </main>
 </body>
 </html>

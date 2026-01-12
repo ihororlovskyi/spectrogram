@@ -13,6 +13,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
     "concurrently": "^9.2.1",
+    "terser": "^5.43.1",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "vite": "^7.3.1"

@@ -6,7 +6,6 @@ Audio Spectrogram Web Service
 
 import os
 import asyncio
-import math
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -89,11 +88,17 @@ PREVIEW_FIGSIZE = (
 )
 PREVIEW_FONT_SCALE = 0.5
 FREQ_MIN_HZ = 0.0
-FREQ_MAX_HZ = 24000.0
 LOG_MIN_HZ = 20.0
 LOG_LINTHRESH_HZ = 20.0
 LOG_BASE = 10
-MAX_FREQ_ROUND_HZ = 500.0
+MEL_LINTHRESH_HZ = 200.0
+MEL_LOG_BASE = 10
+MEL_TICK_HZ = (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000)
+LOG_TICK_HZ = (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000)
+MEL_BANDS = 384
+DB_FLOOR = -120.0
+AUTO_FREQ_MAX_DB = -60.0
+AUTO_FREQ_MAX_PAD_HZ = 100.0
 
 # Зберігання статусів завдань
 tasks_status = {}
@@ -180,14 +185,56 @@ def compute_spectrogram_gpu(audio: np.ndarray, sr: int, n_fft: int = 2048,
         magnitude = cp.abs(stft_matrix)
         spectrogram_db = 20 * cp.log10(cp.maximum(magnitude, 1e-10))
         spectrogram_db = spectrogram_db - spectrogram_db.max()
+        spectrogram_db = cp.maximum(spectrogram_db, DB_FLOOR)
 
         # Повертаємо на CPU
         return cp.asnumpy(spectrogram_db)
     else:
         # CPU fallback з librosa
         stft = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
-        spectrogram_db = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
+        spectrogram_db = librosa.amplitude_to_db(
+            np.abs(stft),
+            ref=np.max,
+            top_db=abs(DB_FLOOR)
+        )
         return spectrogram_db
+
+
+def get_display_bounds(sr: int, scale: str) -> tuple[float, float, float]:
+    """Повертає межі частотної осі та fmax для даних."""
+    nyquist = sr / 2.0
+    display_min = LOG_MIN_HZ if scale in ("log", "mel") else FREQ_MIN_HZ
+    display_max = nyquist
+    if display_max <= display_min:
+        display_max = display_min + 1.0
+
+    fmax_data = min(display_max, nyquist)
+    if fmax_data <= display_min:
+        fmax_data = display_min + 1.0
+
+    return display_min, display_max, fmax_data
+
+
+def compute_mel_spectrogram(audio: np.ndarray, sr: int, n_fft: int,
+                            hop_length: int, fmin: float, fmax: float,
+                            mel_bins: int = MEL_BANDS, htk: bool = True,
+                            norm: Optional[str] = None) -> np.ndarray:
+    """Обчислення mel-спектрограми з перетворенням у dB."""
+    mel_bins = min(mel_bins, n_fft // 2 + 1)
+    mel_power = librosa.feature.melspectrogram(
+        y=audio,
+        sr=sr,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        n_mels=mel_bins,
+        fmin=fmin,
+        fmax=fmax,
+        htk=htk,
+        norm=norm,
+        power=2.0
+    )
+    mel_db = librosa.power_to_db(mel_power, ref=np.max, top_db=abs(DB_FLOOR))
+    return mel_db
 
 
 def apply_image_enhancements(img: Image.Image, mode: str = "classic") -> Image.Image:
@@ -249,6 +296,8 @@ def render_spectrogram_figure(
     figsize: tuple,
     dpi: int,
     font_scale: float,
+    shading: str = "nearest",
+    htk: bool = False,
 ):
     """Створює фігуру спектрограми з узгодженим стилем."""
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
@@ -272,18 +321,19 @@ def render_spectrogram_figure(
     }
     y_axis = y_axis_map.get(scale, "hz")
 
-    nyquist = sr / 2.0
-    display_min = LOG_MIN_HZ if scale == "log" else FREQ_MIN_HZ
-    display_max = min(
-        FREQ_MAX_HZ,
-        math.ceil(nyquist / MAX_FREQ_ROUND_HZ) * MAX_FREQ_ROUND_HZ
-    )
-    if display_max <= display_min:
-        display_max = display_min + MAX_FREQ_ROUND_HZ
+    display_min, display_max, fmax_data = get_display_bounds(sr, scale)
 
-    fmax_data = min(display_max, nyquist)
-    if fmax_data <= display_min:
-        fmax_data = display_min + 1.0
+    if scale in ("linear", "log") and AUTO_FREQ_MAX_DB is not None:
+        n_fft = 2 * (spectrogram_db.shape[0] - 1)
+        freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+        max_db = np.max(spectrogram_db, axis=1)
+        valid = np.where(max_db > AUTO_FREQ_MAX_DB)[0]
+        if valid.size:
+            auto_max = freqs[valid[-1]] + AUTO_FREQ_MAX_PAD_HZ
+            display_max = min(display_max, auto_max)
+            if display_max <= display_min:
+                display_max = min(fmax_data, display_min + 1.0)
+            fmax_data = min(fmax_data, display_max)
 
     img = librosa.display.specshow(
         spectrogram_db,
@@ -296,8 +346,9 @@ def render_spectrogram_figure(
         vmax=vmax,
         fmin=display_min,
         fmax=fmax_data,
-        shading='nearest',
+        shading=shading,
         antialiased=False,
+        htk=htk,
         ax=ax
     )
 
@@ -312,7 +363,7 @@ def render_spectrogram_figure(
     y_label_map = {
         "linear": "Frequency (Hz)",
         "log": "Frequency (Hz, pseudo log)",
-        "mel": "Frequency (Hz, mel scale)",
+        "mel": "Mel Spectrogram (HTK, Hz)",
         "bark": "Bark frequency"
     }
     y_label = y_label_map.get(scale, "Frequency (Hz)")
@@ -330,6 +381,8 @@ def render_spectrogram_figure(
 
     if scale == "log":
         ax.set_yscale('symlog', linthresh=LOG_LINTHRESH_HZ, base=LOG_BASE)
+    elif scale == "mel":
+        ax.set_yscale('symlog', linthresh=MEL_LINTHRESH_HZ, base=MEL_LOG_BASE)
 
     axis_min = display_min
     axis_max = display_max
@@ -337,33 +390,28 @@ def render_spectrogram_figure(
     ax.set_ylim(axis_min, axis_max)
 
     if scale == "log":
-        ticks = [
-            display_min, 50, 100, 200, 500,
-            1000, 2000, 5000, 10000, 20000,
-            display_max
-        ]
-        ticks = [tick for tick in ticks if display_min <= tick <= display_max]
-        ticks = sorted(set(round(tick, 6) for tick in ticks))
-        ax.set_yticks(ticks)
+        ticks = [tick for tick in LOG_TICK_HZ if display_min <= tick <= display_max]
+        if not ticks:
+            ticks = [display_min, display_max]
+        ax.set_yticks(sorted(set(round(tick, 6) for tick in ticks)))
         formatter = ScalarFormatter()
         formatter.set_scientific(False)
         formatter.set_useOffset(False)
         ax.yaxis.set_major_formatter(formatter)
     elif scale == "mel":
-        tick_hz = [
-            display_min, 50, 100, 200, 500,
-            1000, 2000, 5000, 10000, 20000,
-            display_max
-        ]
-        tick_hz = [tick for tick in tick_hz if display_min <= tick <= display_max]
-        tick_hz = sorted(set(round(tick, 6) for tick in tick_hz))
-        ax.set_yticks(tick_hz)
-        ax.set_yticklabels([str(int(round(tick))) for tick in tick_hz])
+        ticks = [tick for tick in MEL_TICK_HZ if display_min <= tick <= display_max]
+        if not ticks:
+            ticks = [display_min, display_max]
+        ax.set_yticks(sorted(set(round(tick, 6) for tick in ticks)))
+        formatter = ScalarFormatter()
+        formatter.set_scientific(False)
+        formatter.set_useOffset(False)
+        ax.yaxis.set_major_formatter(formatter)
     else:
         ticks = [tick for tick in ax.get_yticks() if display_min <= tick <= display_max]
-        ticks.extend([display_min, display_max])
-        ticks = sorted(set(round(tick, 6) for tick in ticks))
-        ax.set_yticks(ticks)
+        if not ticks:
+            ticks = [display_min, display_max]
+        ax.set_yticks(sorted(set(round(tick, 6) for tick in ticks)))
 
     # Кольорова шкала
     cbar = fig.colorbar(img, ax=ax, format='%+2.0f dB')
@@ -415,7 +463,7 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
     """
     Генерація 2D спектрограми та збереження як JPEG
     scale: "linear", "log", "mel"
-    n_fft: FFT size (256, 512, 1024, 2048, 4096, 8192, 16384)
+    n_fft: FFT size (1024, 2048, 4096, 8192, 16384)
     mode: "classic", "sharp", "sharper" - динамічний діапазон
     use_gpu: використовувати GPU обробку якщо доступна
     """
@@ -429,7 +477,22 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
     hop_length = max(1, n_fft // mode_config["hop_div"])
     if mode_config["preemphasis"] is not None:
         audio = librosa.effects.preemphasis(audio, coef=mode_config["preemphasis"])
-    spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
+    display_min, _, fmax_data = get_display_bounds(sr, scale)
+    shading = "nearest"
+    htk = False
+    if scale == "mel":
+        spectrogram_db = compute_mel_spectrogram(
+            audio,
+            sr,
+            n_fft,
+            hop_length,
+            display_min,
+            fmax_data
+        )
+        shading = "gouraud"
+        htk = True
+    else:
+        spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
 
     # Контроль динамічного діапазону залежно від Mode
     vmax = spectrogram_db.max()
@@ -439,9 +502,10 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
 
     if mode_config["top_db"] is not None:
         vmin = vmax - mode_config["top_db"]
-        spectrogram_db = np.maximum(spectrogram_db, vmin)
     else:
         vmin = spectrogram_db.min()
+    vmin = min(vmin, DB_FLOOR)
+    spectrogram_db = np.maximum(spectrogram_db, vmin)
 
     fig = render_spectrogram_figure(
         spectrogram_db,
@@ -453,7 +517,9 @@ def generate_2d_spectrogram(audio_path: str, output_path: str,
         vmax=vmax,
         figsize=FINAL_FIGSIZE,
         dpi=FINAL_DPI,
-        font_scale=1.0
+        font_scale=1.0,
+        shading=shading,
+        htk=htk
     )
     save_figure_image(fig, output_path, mode)
 
@@ -484,7 +550,22 @@ def generate_2d_preview(audio_path: str, output_path: str,
     hop_length = max(1, n_fft // mode_config["hop_div"])
     if mode_config["preemphasis"] is not None:
         audio = librosa.effects.preemphasis(audio, coef=mode_config["preemphasis"])
-    spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
+    display_min, _, fmax_data = get_display_bounds(sr, scale)
+    shading = "nearest"
+    htk = False
+    if scale == "mel":
+        spectrogram_db = compute_mel_spectrogram(
+            audio,
+            sr,
+            n_fft,
+            hop_length,
+            display_min,
+            fmax_data
+        )
+        shading = "gouraud"
+        htk = True
+    else:
+        spectrogram_db = compute_spectrogram_gpu(audio, sr, n_fft, hop_length, use_gpu)
 
     # Контроль динамічного діапазону залежно від Mode
     vmax = spectrogram_db.max()
@@ -494,9 +575,10 @@ def generate_2d_preview(audio_path: str, output_path: str,
 
     if mode_config["top_db"] is not None:
         vmin = vmax - mode_config["top_db"]
-        spectrogram_db = np.maximum(spectrogram_db, vmin)
     else:
         vmin = spectrogram_db.min()
+    vmin = min(vmin, DB_FLOOR)
+    spectrogram_db = np.maximum(spectrogram_db, vmin)
 
     fig = render_spectrogram_figure(
         spectrogram_db,
@@ -508,7 +590,9 @@ def generate_2d_preview(audio_path: str, output_path: str,
         vmax=vmax,
         figsize=PREVIEW_FIGSIZE,
         dpi=PREVIEW_DPI,
-        font_scale=PREVIEW_FONT_SCALE
+        font_scale=PREVIEW_FONT_SCALE,
+        shading=shading,
+        htk=htk
     )
     save_figure_image(fig, output_path, mode)
 
@@ -619,8 +703,8 @@ async def upload_audio(
     if scale.lower() not in ["linear", "log", "mel"]:
         raise HTTPException(status_code=400, detail="Масштаб має бути 'linear', 'log' або 'mel'")
 
-    if fft_size not in [256, 512, 1024, 2048, 4096, 8192, 16384]:
-        raise HTTPException(status_code=400, detail="FFT Size має бути 256, 512, 1024, 2048, 4096, 8192 або 16384")
+    if fft_size not in [1024, 2048, 4096, 8192, 16384]:
+        raise HTTPException(status_code=400, detail="FFT Size має бути 1024, 2048, 4096, 8192 або 16384")
 
     if mode not in ["classic", "sharp", "sharper"]:
         raise HTTPException(status_code=400, detail="Mode має бути 'classic', 'sharp' або 'sharper'")
@@ -698,8 +782,8 @@ async def generate_preview(
     if scale.lower() not in ["linear", "log", "mel"]:
         raise HTTPException(status_code=400, detail="Масштаб має бути 'linear', 'log' або 'mel'")
 
-    if fft_size not in [256, 512, 1024, 2048, 4096, 8192, 16384]:
-        raise HTTPException(status_code=400, detail="FFT Size має бути 256, 512, 1024, 2048, 4096, 8192 або 16384")
+    if fft_size not in [1024, 2048, 4096, 8192, 16384]:
+        raise HTTPException(status_code=400, detail="FFT Size має бути 1024, 2048, 4096, 8192 або 16384")
 
     if mode not in ["classic", "sharp", "sharper"]:
         raise HTTPException(status_code=400, detail="Mode має бути 'classic', 'sharp' або 'sharper'")
@@ -777,8 +861,8 @@ async def download_4k_spectrogram(
     if scale.lower() not in ["linear", "log", "mel"]:
         raise HTTPException(status_code=400, detail="Масштаб має бути 'linear', 'log' або 'mel'")
 
-    if fft_size not in [256, 512, 1024, 2048, 4096, 8192, 16384]:
-        raise HTTPException(status_code=400, detail="FFT Size має бути 256, 512, 1024, 2048, 4096, 8192 або 16384")
+    if fft_size not in [1024, 2048, 4096, 8192, 16384]:
+        raise HTTPException(status_code=400, detail="FFT Size має бути 1024, 2048, 4096, 8192 або 16384")
 
     if mode not in ["classic", "sharp", "sharper"]:
         raise HTTPException(status_code=400, detail="Mode має бути 'classic', 'sharp' або 'sharper'")

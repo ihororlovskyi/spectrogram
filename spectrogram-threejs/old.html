@@ -1,0 +1,190 @@
+@ -0,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spectrogram on ThreeJS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
+  <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+  <!-- <link rel="stylesheet" href="/src/style.css"> -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style type="text/tailwindcss">
+    @theme {
+      --text-3xs: 0.5rem;
+      --text-2xs: 0.625rem;
+      --font-quicksand: "Quicksand", sans-serif;
+    }
+  </style>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      /* background-color: #0d0c0c; */
+    }
+    .controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+    }
+    .btn-active {
+      border-color: rgb(156, 163, 175) !important;
+      background: rgba(255, 255, 255, 0.25) !important;
+    }
+  </style>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body class="bg-[#0d0c0c]">
+  <div id="Spectrogram"></div>
+  <!-- <div id="Artwork" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 10; pointer-events: none; display: none;">
+    <img id="logo" src="/098-3000-100%.jpg" alt="Artwork" style="width: 336px; height: 336px; object-fit: contain; border-radius: 16px; display: block;">
+    <div style="font-size: 16px; color: #ccc; line-height: 1.4;" class="mt-2">
+      <div style="font-weight: 100;">Percentage Of Yes-ness</div>
+      <div style="font-weight: 500;" class="mb-2">Irukanji</div>
+      <div style="font-size: 12px; font-weight: 100; color: #999;">Irukanji • Springwald</div>
+      <div style="font-size: 12px; font-weight: 100; color: #999;">© 2024 Moon Koradji Records</div>
+    </div>
+  </div> -->
+  <main>
+    <div class="absolute top-4 right-4">
+      <button id="menu-button" class="p-2 text-white bg-black/55 backdrop-blur border border-white/10 rounded-lg hover:text-gray-300 transition" style="display: none; font-size: 16px; line-height: 1; cursor: pointer;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
+      <div id="controlPanel" class="relative p-2 text-white leading-none bg-black/55 backdrop-blur border border-white/10 rounded-lg w-full max-w-64 text-xs">
+        <button id="close-panel" class="absolute top-2 right-2 text-white hover:text-gray-300 transition" style="font-size: 16px; line-height: 1; background: none; border: none; cursor: pointer; padding: 0; width: 16px; height: 16px;">
+          ✕
+        </button>
+
+        <div class="mb-1.5">
+          <div>Freq range: <span id="info-freq-range" style="color: #999;">—</span></div>
+          <div>Freq bins: <span id="info-freq-bins" style="color: #999;">—</span></div>
+          <div>Time samples: <span id="info-time-samples" style="color: #999;">—</span></div>
+          <div>FFT size: <span id="info-fft-size" style="color: #999;">—</span></div>
+          <div>Spectrogram height: <span id="info-spectrogram-height" style="color: #999;">—</span></div>
+          <div>Spectrogram width: <span id="info-spectrogram-width" style="color: #999;">—</span></div>
+          <div>Spectrogram length: <span id="info-spectrogram-length" style="color: #999;">—</span></div>
+          <div>Camera X: <span id="info-camera-x" style="color: #999;">—</span></div>
+          <div>Camera Y: <span id="info-camera-y" style="color: #999;">—</span></div>
+          <div>Camera Z: <span id="info-camera-z" style="color: #999;">—</span></div>
+          <div>Rotation X: <span id="info-rotation-x" style="color: #999;">—</span></div>
+          <div>Rotation Y: <span id="info-rotation-y" style="color: #999;">—</span></div>
+          <div>Rotation Z: <span id="info-rotation-z" style="color: #999;">—</span></div>
+        </div>
+
+        <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 10px; padding-top: 10px;">
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            <span id="source-status">Select a source</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 items-center">
+            <button id="mic-button" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Mic</button>
+            <label class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition cursor-pointer" style="background: rgba(255, 255, 255, 0.05);">
+              File
+              <input id="file-input" type="file" accept="audio/*" class="hidden">
+            </label>
+            <button id="play-pause-btn" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-600 disabled:hover:text-gray-300" style="background: rgba(255, 255, 255, 0.05);" disabled>Play</button>
+            <button id="stop-button" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Full Stop</button>
+            <span>Irukanji</span>
+            <button id="demo-button" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">047</button>
+            <span>Gaz Mask</span>
+            <button id="demo-gazmask-button" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">04</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Scale:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="scale-linear" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Linear</button>
+            <button id="scale-log" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Log</button>
+            <button id="scale-mel" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Mel</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Colormap:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="colormap-gray" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Gray</button>
+            <button id="colormap-inferno" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Inferno</button>
+            <button id="colormap-rainbow" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Rainbow</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Frequency Bins:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="freq-bins-increase" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">×2</button>
+            <button id="freq-bins-decrease" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">÷2</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Artwork:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="artwork-toggle" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">
+              <svg id="eye-open" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <svg id="eye-closed" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+            </button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Axes:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="camera-axes-toggle" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Show Camera Axes</button>
+            <button id="spectrogram-axes-toggle" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Show Spectrogram Axes</button>
+          </div>
+          <div class="mb-1.5 text-xs text-neutral-400 font-quicksand font-bold">
+            Angle:
+          </div>
+          <div class="flex flex-wrap gap-1.5 items-center">
+            <span>X</span>
+            <button id="angle-rotate-x-neg" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">-45°</button>
+            <button id="angle-rotate-x" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">+45°</button>
+            <span>Y</span>
+            <button id="angle-rotate-y-neg" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">-45°</button>
+            <button id="angle-rotate-y" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">+45°</button>
+            <span>Z</span>
+            <button id="angle-rotate-z-neg" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">-45°</button>
+            <button id="angle-rotate-z" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">+45°</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Presets:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="preset-90-90-0" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">90, 90, 0</button>
+            <button id="preset-0-0-0" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">0, 0, 0</button>
+            <button id="preset-45-45-0" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">45, 45, 0</button>
+            <button id="preset-45-180-0" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">45, 180, 0</button>
+            <button id="preset-90-180-0" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">90, 180, 0</button>
+          </div>
+          <div class="mb-1.5" style="font-size: 11px; color: #999;">
+            Flip:
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-1.5">
+            <button id="flip-x" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Flip X</button>
+            <button id="flip-y" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Flip Y</button>
+            <button id="flip-z" class="px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition" style="background: rgba(255, 255, 255, 0.05);">Flip Z</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./src/old.ts"></script>
+    <script type="x-shader/x-vertex" id="vertexshader">
+      attribute float displacement;
+      uniform vec3 vLut[256];
+      varying vec3 vColor;
+      void main(){
+        int index = int(displacement);
+        vColor = vLut[index];
+        vec3 newPosition = position + normal*displacement/15.5;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition,1.0);
+      }
+    </script>
+
+    <script type="x-shader/x-fragment" id="fragmentshader">
+      varying vec3 vColor;
+      void main(){
+        gl_FragColor = vec4(vColor,1.0);
+      }
+    </script>
+  </main>
+</body>
+</html>
