@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shadertoy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body class="font-quicksand font-bold m-0 p-0 overflow-hidden bg-neutral-700">
+
+  <div id="video" class="w-[min(100vw,calc(100vh*16/9))] h-[min(100vh,calc(100vw*9/16))] fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1.5 bg-neutral-800 border-10 border-neutral-700 p-1.5 z-0 box-border">
+
+    <div class="flex w-full flex-1 gap-1.5">
+      <div id="DeformSquareTunnelGlsl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="DeformSquareTunnelSksl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="OctgramsGlsl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="OctgramsSksl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="SolarWindGlsl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="SolarWindSksl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="StarNestGlsl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+      <div id="StarNestSksl" class="w-full h-full bg-neutral-900 rounded-lg overflow-hidden"></div>
+    </div>
+
+  </div>
+
+  <main>
+    <div class="absolute top-4 right-4">
+
+      <button id="OpenControlPanel" class="cursor-pointer p-2 text-white bg-black/55 backdrop-blur border border-white/10 rounded-lg hover:text-gray-300 transition text-base leading-none hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
+
+      <div id="controlPanel" class="relative p-2 text-white leading-none bg-black/55 backdrop-blur border border-white/10 rounded-lg w-full max-w-64 text-xs">
+
+        <button id="CloseControlPanel" class="cursor-pointer absolute top-2 right-2 text-white hover:text-gray-300 transition text-base leading-none bg-none p-0 size-4">
+          ✕
+        </button>
+
+        <div class="mb-1.5 pr-1.5 w-[calc(100%-1rem)] text-xs text-neutral-400">
+          <span>Shadertoy</span>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>DeformSquareTunnel</span>
+          <button id="DeformSquareTunnelGlslBtn" class="btn-base">glsl</button>
+          <button id="DeformSquareTunnelSkslBtn" class="btn-base" disabled>sksl</button>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>Octgrams</span>
+          <button id="OctgramsGlslBtn" class="btn-base" disabled>glsl</button>
+          <button id="OctgramsSkslBtn" class="btn-base" disabled>sksl</button>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>SolarWind</span>
+          <button id="SolarWindGlslBtn" class="btn-base" disabled>glsl</button>
+          <button id="SolarWindSkslBtn" class="btn-base" disabled>sksl</button>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mb-1.5 items-center">
+          <span>StarNest</span>
+          <button id="StarNestGlslBtn" class="btn-base" disabled>glsl</button>
+          <button id="StarNestSkslBtn" class="btn-base" disabled>sksl</button>
+        </div>
+
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </main>
+</body>
+</html>

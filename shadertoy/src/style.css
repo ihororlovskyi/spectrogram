@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --text-3xs: 0.5rem;
+  --text-2xs: 0.625rem;
+  --font-quicksand: "Quicksand", sans-serif;
+}
+
+@layer components {
+  .btn-base {
+    @apply cursor-pointer px-2 py-0.5 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white transition bg-white/5;
+  }
+
+  .btn-base:disabled {
+    @apply cursor-not-allowed opacity-35 hover:border-gray-600 hover:text-gray-300;
+  }
+
+  .btn-active {
+    @apply border-gray-400! bg-white/25!;
+  }
+}

@@ -1,0 +1,7 @@
+.idea
+.DS_Store
+node_modules/
+dist/
+.claude/
+CLAUDE.md
+AGENTS.md
